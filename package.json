@@ -1,0 +1,28 @@
+{
+  "name": "maxines-pop-tracker",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --pretty false",
+    "start": "node server.mjs",
+    "import:data": "python3 scripts/import_workbook.py",
+    "test": "npm run typecheck && node scripts/validate_data.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "1.27.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "typescript": "7.0.2",
+    "vite": "8.1.5"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}
