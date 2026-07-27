@@ -118,7 +118,7 @@ export function ItemModal({ item, initialStatus, currency, useProxy, onClose, on
                 <label><span>Condition</span><select name="condition" defaultValue={draft.condition}>{conditionOptions.map((value) => <option key={value}>{value}</option>)}</select></label>
                 <label><span>Shelf / location</span><input name="location" defaultValue={draft.location} placeholder="e.g. Cabinet A · shelf 2" /></label>
               </div>
-              <label><span>Image URL</span><input name="customImageUrl" type="url" defaultValue={draft.customImageUrl} placeholder="Paste a better product or box image" /></label>
+              <label><span>Image or product page URL</span><input name="customImageUrl" type="url" value={draft.customImageUrl} onChange={(event) => setDraft((current) => ({ ...current, customImageUrl: event.target.value }))} placeholder="Paste an image, Funko page, or retailer listing URL" /><small className="field-help">Product pages are checked for a preview image. Some protected retailer pages may require choosing an image from the market results.</small></label>
               {draft.catalogMatch && !draft.customImageUrl && (
                 <div className="catalog-note">
                   <AlertTriangle size={16} />
@@ -143,7 +143,7 @@ export function ItemModal({ item, initialStatus, currency, useProxy, onClose, on
             </div>
           </form>
           <aside className="modal-market-column">
-            <MarketSearch item={draft} appCurrency={currency} onUseEstimate={useEstimate} onOpenSettings={onOpenSettings} />
+            <MarketSearch item={draft} appCurrency={currency} onUseEstimate={useEstimate} onUseImage={(imageUrl) => setDraft((current) => ({ ...current, customImageUrl: imageUrl }))} onOpenSettings={onOpenSettings} />
             <div className="market-link-card">
               <span className="eyebrow">QUICK LINKS</span>
               <a href={links.tradeMe} target="_blank" rel="noreferrer">Search Trade Me <ExternalLink size={14} /></a>

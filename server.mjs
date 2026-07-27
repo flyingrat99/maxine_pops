@@ -30,6 +30,144 @@ const contentTypes = {
   ".webp": "image/webp",
 };
 
+const previewDomains = [
+  "ebay.co.uk", "ebay.com", "ebay.com.au", "funko.com", "hobbydb.com", "popcultcha.com.au",
+  "pricecharting.com", "trademe.co.nz",
+];
+const previewCache = new Map();
+
+function isAllowedPreviewHost(hostname) {
+  const host = hostname.toLowerCase();
+  return previewDomains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
+function decodeHtml(value) {
+  const named = { amp: "&", apos: "'", gt: ">", lt: "<", quot: '"' };
+  return value.replace(/&(#x[0-9a-f]+|#\d+|amp|apos|gt|lt|quot);/gi, (match, entity) => {
+    if (entity[0] === "#") {
+      const hexadecimal = entity[1].toLowerCase() === "x";
+      const codePoint = Number.parseInt(entity.slice(hexadecimal ? 2 : 1), hexadecimal ? 16 : 10);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+    }
+    return named[entity.toLowerCase()] ?? match;
+  });
+}
+
+function tagAttribute(tag, name) {
+  const match = tag.match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, "i"));
+  return decodeHtml(match?.[1] ?? match?.[2] ?? match?.[3] ?? "");
+}
+
+function jsonImage(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(jsonImage).find(Boolean) || "";
+  if (value && typeof value === "object") return jsonImage(value.url || value.contentUrl);
+  return "";
+}
+
+function productImageFromJson(value, expectedSku = "") {
+  const pending = [value];
+  while (pending.length) {
+    const current = pending.shift();
+    if (!current || typeof current !== "object") continue;
+    const types = Array.isArray(current["@type"]) ? current["@type"] : [current["@type"]];
+    if (types.some((type) => String(type).toLowerCase() === "product")) {
+      const sku = String(current.sku || current.mpn || "");
+      const image = jsonImage(current.image);
+      if (image && (!expectedSku || sku === expectedSku)) return image;
+    }
+    if (Array.isArray(current)) pending.push(...current);
+    else pending.push(...Object.values(current));
+  }
+  return "";
+}
+
+function productImageFromHtml(html, pageUrl, expectedSku = "") {
+  for (const tag of html.match(/<meta\b[^>]*>/gi) || []) {
+    const key = (tagAttribute(tag, "property") || tagAttribute(tag, "name")).toLowerCase();
+    if (!["og:image", "og:image:secure_url", "twitter:image", "twitter:image:src"].includes(key)) continue;
+    const content = tagAttribute(tag, "content");
+    if (content) return new URL(content, pageUrl).href;
+  }
+
+  const scripts = html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+  for (const match of scripts) {
+    try {
+      const image = productImageFromJson(JSON.parse(match[1].trim()), expectedSku);
+      if (image) return new URL(decodeHtml(image), pageUrl).href;
+    } catch {
+      // Ignore malformed third-party structured data and try the next block.
+    }
+  }
+  return "";
+}
+
+async function fetchPreviewPage(initialUrl) {
+  let current = initialUrl;
+  for (let redirectCount = 0; redirectCount < 5; redirectCount += 1) {
+    if (current.protocol !== "https:" || !isAllowedPreviewHost(current.hostname)) throw new Error("That product-page domain is not supported for image previews.");
+    const result = await fetch(current, {
+      redirect: "manual",
+      signal: AbortSignal.timeout(15_000),
+      headers: {
+        Accept: "text/html,application/xhtml+xml,image/avif,image/webp,image/*;q=0.8,*/*;q=0.5",
+        "User-Agent": "Mozilla/5.0 (compatible; MaxinesPopTracker/1.0; product image preview)",
+      },
+    });
+    if ([301, 302, 303, 307, 308].includes(result.status)) {
+      const location = result.headers.get("location");
+      if (!location) throw new Error("The product page returned an invalid redirect.");
+      current = new URL(location, current);
+      continue;
+    }
+    return { result, current };
+  }
+  throw new Error("The product page redirected too many times.");
+}
+
+async function resolveProductPageImage(rawUrl) {
+  if (!rawUrl || rawUrl.length > 2_048) throw new Error("Enter a valid product-page URL.");
+  const pageUrl = new URL(rawUrl);
+  if (pageUrl.protocol !== "https:" || !isAllowedPreviewHost(pageUrl.hostname)) throw new Error("That product-page domain is not supported for image previews.");
+
+  const cached = previewCache.get(pageUrl.href);
+  if (cached?.expiresAt > Date.now()) return cached.imageUrl;
+
+  const isFunko = pageUrl.hostname === "funko.com" || pageUrl.hostname.endsWith(".funko.com");
+  const pathItem = pageUrl.pathname.match(/\/(\d{4,6})\.html$/)?.[1] || "";
+  const queryItem = /^\d{4,6}$/.test(pageUrl.searchParams.get("q") || "") ? pageUrl.searchParams.get("q") : "";
+  const funkoItem = isFunko ? pathItem || queryItem : "";
+  let imageUrl = "";
+
+  if (funkoItem) {
+    const searchUrl = new URL(`https://funko.com/search/?q=${encodeURIComponent(funkoItem)}`);
+    const { result, current } = await fetchPreviewPage(searchUrl);
+    if (result.ok) imageUrl = productImageFromHtml(await result.text(), current, funkoItem);
+    else await result.body?.cancel();
+  }
+
+  if (!imageUrl) {
+    const { result, current } = await fetchPreviewPage(pageUrl);
+    if (!result.ok) throw new Error(`The product page did not allow an image preview (${result.status}).`);
+    const responseType = result.headers.get("content-type") || "";
+    if (responseType.startsWith("image/")) {
+      imageUrl = current.href;
+      await result.body?.cancel();
+    } else if (responseType.includes("html")) imageUrl = productImageFromHtml(await result.text(), current);
+    else await result.body?.cancel();
+  }
+
+  if (!imageUrl) throw new Error("No product image was advertised by that page.");
+  const parsedImage = new URL(imageUrl);
+  if (!/^https?:$/.test(parsedImage.protocol)) throw new Error("The product page returned an unsafe image URL.");
+  if (isFunko && parsedImage.pathname.includes("/dw/image/")) {
+    parsedImage.searchParams.set("sw", "650");
+    parsedImage.searchParams.set("sh", "650");
+  }
+  previewCache.set(pageUrl.href, { imageUrl: parsedImage.href, expiresAt: Date.now() + 12 * 60 * 60 * 1_000 });
+  return parsedImage.href;
+}
+
 async function existingFile(pathname) {
   const cleanPath = normalize(decodeURIComponent(pathname)).replace(/^(\.\.(\/|\\|$))+/, "");
   const requested = join(distRoot, cleanPath === "/" ? "index.html" : cleanPath);
@@ -213,6 +351,17 @@ async function searchTradeMe(query, trademe) {
 
 async function handleApi(request, response, url) {
   const config = await readConnections();
+  if (request.method === "GET" && url.pathname === "/api/images/preview") {
+    const imageUrl = await resolveProductPageImage((url.searchParams.get("url") || "").trim());
+    response.writeHead(302, {
+      Location: imageUrl,
+      "Cache-Control": "private, max-age=43200",
+      "X-Content-Type-Options": "nosniff",
+    });
+    response.end();
+    return true;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/connections") {
     json(response, 200, publicConnectionStatus(config));
     return true;

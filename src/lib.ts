@@ -40,6 +40,9 @@ export function formatMoney(value: number | null | undefined, currency = "NZD"):
 
 export function getImageUrl(item: PopItem, useProxy = true): string {
   const source = item.customImageUrl || item.catalogMatch?.imageUrl || "";
+  if (item.customImageUrl && !/\.(?:avif|gif|jpe?g|png|svg|webp)(?:$|[?#])/i.test(source)) {
+    return `/api/images/preview?url=${encodeURIComponent(source)}`;
+  }
   if (!source || !useProxy || !source.includes("images.hobbydb.com")) return source;
   return `https://wsrv.nl/?url=${encodeURIComponent(source)}&w=520&h=520&fit=contain&we`;
 }

@@ -1,4 +1,4 @@
-import { ExternalLink, LoaderCircle, Search, ShoppingBag } from "lucide-react";
+import { ExternalLink, ImagePlus, LoaderCircle, Search, ShoppingBag } from "lucide-react";
 import { useMemo, useState } from "react";
 import { formatMoney, marketLinks, marketQuery, median } from "../lib";
 import type { MarketSearchResponse, PopItem } from "../types";
@@ -7,10 +7,11 @@ interface MarketSearchProps {
   item: Pick<PopItem, "name" | "number" | "series">;
   appCurrency: string;
   onUseEstimate: (value: number, source: string) => void;
+  onUseImage: (imageUrl: string) => void;
   onOpenSettings?: () => void;
 }
 
-export function MarketSearch({ item, appCurrency, onUseEstimate, onOpenSettings }: MarketSearchProps) {
+export function MarketSearch({ item, appCurrency, onUseEstimate, onUseImage, onOpenSettings }: MarketSearchProps) {
   const [source, setSource] = useState<"trademe" | "ebay">("trademe");
   const [result, setResult] = useState<MarketSearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -77,11 +78,14 @@ export function MarketSearch({ item, appCurrency, onUseEstimate, onOpenSettings 
           )}
           <div className="listing-strip">
             {result.listings.slice(0, 8).map((listing) => (
-              <a key={listing.id} href={listing.url} target="_blank" rel="noreferrer" className="mini-listing">
+              <article key={listing.id} className="mini-listing">
                 {listing.imageUrl ? <img src={listing.imageUrl} alt="" loading="lazy" /> : <div className="mini-image" />}
-                <span>{listing.title}</span>
-                <strong>{formatMoney(listing.price, listing.currency)}</strong>
-              </a>
+                <div><span>{listing.title}</span><strong>{formatMoney(listing.price, listing.currency)}</strong></div>
+                <div className="mini-listing-actions">
+                  <a href={listing.url} target="_blank" rel="noreferrer" title="Open listing"><ExternalLink size={12} /></a>
+                  {listing.imageUrl && <button type="button" onClick={() => onUseImage(listing.imageUrl)} title="Use this listing image"><ImagePlus size={12} /> Use image</button>}
+                </div>
+              </article>
             ))}
           </div>
         </div>

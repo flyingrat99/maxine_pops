@@ -101,6 +101,12 @@ and image links, but its data was last updated on 3 January 2021 and the project
 is now deprecated. It does not contain box numbers or prices. Suggested matches
 are visibly marked and can be replaced with a custom image URL.
 
+The item editor also accepts a supported Funko or retailer product-page URL and
+uses its advertised preview image when the site permits metadata access. When a
+connected Trade Me or eBay search returns a suitable listing, use **Use image**
+to copy that listing image into the record. Always verify the figure, box number,
+sticker, and variant before saving it.
+
 Some old hobbyDB image links reject direct hotlinking. The optional image helper
 uses the open-source [wsrv.nl image service](https://wsrv.nl/) to display those
 suggestions. Turn it off in Settings if desired; placeholders remain available.

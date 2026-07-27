@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getImageUrl } from "../lib";
 import type { PopItem } from "../types";
 
@@ -6,6 +6,8 @@ export function PopImage({ item, useProxy, eager = false }: { item: PopItem; use
   const [failed, setFailed] = useState(false);
   const imageUrl = getImageUrl(item, useProxy);
   const initials = useMemo(() => item.name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase(), [item.name]);
+
+  useEffect(() => setFailed(false), [imageUrl]);
 
   if (!imageUrl || failed) {
     return (
