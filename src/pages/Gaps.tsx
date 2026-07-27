@@ -173,20 +173,20 @@ export function Gaps({ onNotify, onViewWishlist }: GapsProps) {
             <>
               <div className="completion-score"><div><strong>{gapData.coverage}%</strong><span>number-run coverage</span></div><p>Owned {gapData.numbers.length} unique numbers in the detected #{gapData.min}–#{gapData.max} run.</p></div>
               <div className="gap-progress"><span style={{ width: `${gapData.coverage}%` }} /></div>
-              <div className="inline-alert neutral"><AlertTriangle size={17} /><p>Large series are split into nearby number runs, avoiding hundreds of false gaps between release eras. Box numbers are not always continuous, so treat these as leads to verify—not a canonical checklist. Use “Find image” to identify a number before wishlisting it.{isolatedNumberCount > 0 ? ` ${isolatedNumberCount} isolated number${isolatedNumberCount === 1 ? " was" : "s were"} left out of the detected runs.` : ""}</p></div>
+              <div className="inline-alert neutral"><AlertTriangle size={17} /><p>Large series are split into nearby number runs, avoiding hundreds of false gaps between release eras. Box numbers are not always continuous, so treat these as leads to verify—not a canonical checklist. Use the Popcultcha lookup to identify a number before wishlisting it.{isolatedNumberCount > 0 ? ` ${isolatedNumberCount} isolated number${isolatedNumberCount === 1 ? " was" : "s were"} left out of the detected runs.` : ""}</p></div>
               {gapData.missing.length ? (
                 <div className="gap-number-grid">
                   {gapData.missing.map((number) => {
                     const key = `gap-${selectedSeries}-${number}`;
                     const wished = wishlist.some((item) => item.number === String(number) && (item.series === selectedSeries || item.series.includes("wishlist")));
                     const isAdded = added.has(key);
-                    const imageSearchUrl = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(`Funko Pop ${selectedSeries} ${number}`)}`;
+                    const popcultchaSearchUrl = `https://www.popcultcha.com.au/catalogsearch/result/?q=${encodeURIComponent(`Funko Pop ${selectedSeries} ${number}`)}`;
                     return (
                       <article key={number} className={`gap-number-card ${wished || isAdded ? "wished" : ""}`}>
-                        <a href={imageSearchUrl} target="_blank" rel="noreferrer" className="gap-image-lookup" title={`Find images for ${selectedSeries} #${number}`}>
+                        <a href={popcultchaSearchUrl} target="_blank" rel="noreferrer" className="gap-image-lookup" title={`Search Popcultcha for ${selectedSeries} #${number}`}>
                           <ImageIcon size={19} />
                           <strong>#{number}</strong>
-                          <span>Find image</span>
+                          <span>Popcultcha lookup</span>
                         </a>
                         <button disabled={wished || isAdded} onClick={() => addGap(number)}>{wished || isAdded ? <><Heart size={12} fill="currentColor" /> Listed</> : <><Plus size={12} /> Wishlist</>}</button>
                       </article>
