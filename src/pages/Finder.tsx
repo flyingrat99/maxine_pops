@@ -7,6 +7,29 @@ import { createLocalId, mergeProductInfo } from "../lib";
 import { useTracker } from "../store";
 import type { Category, ItemStatus, PopItem } from "../types";
 
+function formatDuration(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  if (minutes < 60) return `${minutes}m ${remainder}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
+interface BatchUpdates {
+  records: number;
+  images: number;
+  barcodes: number;
+  skus: number;
+  descriptions: number;
+  releaseDates: number;
+  boxNumbers: number;
+  prices: number;
+}
+
+const emptyBatchUpdates = (): BatchUpdates => ({ records: 0, images: 0, barcodes: 0, skus: 0, descriptions: 0, releaseDates: 0, boxNumbers: 0, prices: 0 });
+
 function finderItem(seed: Partial<PopItem> = {}): PopItem {
   return {
     id: createLocalId("finder"),
@@ -51,7 +74,10 @@ export function Finder({ initialSeed, onSeedUsed }: FinderProps) {
   const [message, setMessage] = useState("");
   const [running, setRunning] = useState(false);
   const [confirmBatch, setConfirmBatch] = useState(false);
-  const [progress, setProgress] = useState({ done: 0, total: 0, matched: 0, failed: 0, current: "" });
+  const [stopping, setStopping] = useState(false);
+  const [runStartedAt, setRunStartedAt] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [progress, setProgress] = useState({ done: 0, total: 0, matched: 0, failed: 0, current: "", updates: emptyBatchUpdates() });
   const stopRequested = useRef(false);
 
   useEffect(() => {
@@ -61,6 +87,14 @@ export function Finder({ initialSeed, onSeedUsed }: FinderProps) {
   }, [initialSeed, onSeedUsed]);
 
   useEffect(() => () => { stopRequested.current = true; }, []);
+
+  useEffect(() => {
+    if (!running || !runStartedAt) return;
+    const updateElapsed = () => setElapsedSeconds(Math.floor((Date.now() - runStartedAt) / 1_000));
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 1_000);
+    return () => window.clearInterval(timer);
+  }, [running, runStartedAt]);
 
   const staleBefore = Date.now() - 30 * 24 * 60 * 60 * 1_000;
   const due = useMemo(() => state.items.filter((item) => {
@@ -79,31 +113,55 @@ export function Finder({ initialSeed, onSeedUsed }: FinderProps) {
     const queue = refreshAll ? [...state.items] : due;
     if (!queue.length) return;
     stopRequested.current = false;
+    setStopping(false);
     setRunning(true);
     setConfirmBatch(false);
     setMessage("");
+    setRunStartedAt(Date.now());
+    setElapsedSeconds(0);
     let matched = 0;
     let failed = 0;
-    setProgress({ done: 0, total: queue.length, matched: 0, failed: 0, current: "" });
+    const updates = emptyBatchUpdates();
+    setProgress({ done: 0, total: queue.length, matched: 0, failed: 0, current: "", updates: { ...updates } });
     for (let index = 0; index < queue.length; index += 1) {
       if (stopRequested.current) break;
       const item = queue[index];
-      setProgress({ done: index, total: queue.length, matched, failed, current: item.name });
+      setProgress({ done: index, total: queue.length, matched, failed, current: item.name, updates: { ...updates } });
       try {
         const result = await requestProductInfo(item);
-        updateItem(mergeProductInfo(item, result, false));
+        const enriched = mergeProductInfo(item, result, false);
+        const beforePrices = JSON.stringify(item.referencePrices);
+        const afterPrices = JSON.stringify(enriched.referencePrices);
+        const changed = {
+          images: enriched.customImageUrl !== item.customImageUrl,
+          barcodes: enriched.upc !== item.upc,
+          skus: enriched.sku !== item.sku,
+          descriptions: enriched.description !== item.description,
+          releaseDates: enriched.releaseDate !== item.releaseDate,
+          boxNumbers: enriched.number !== item.number,
+          prices: beforePrices !== afterPrices,
+        };
+        if (Object.values(changed).some(Boolean)) updates.records += 1;
+        for (const [field, wasChanged] of Object.entries(changed) as [keyof Omit<BatchUpdates, "records">, boolean][]) {
+          if (wasChanged) updates[field] += 1;
+        }
+        updateItem(enriched);
         if (result.suggestion && result.suggestion.confidence >= 0.9) matched += 1;
         else failed += 1;
       } catch {
         failed += 1;
       }
-      setProgress({ done: index + 1, total: queue.length, matched, failed, current: item.name });
+      setProgress({ done: index + 1, total: queue.length, matched, failed, current: item.name, updates: { ...updates } });
       if (index < queue.length - 1 && !stopRequested.current) await new Promise((resolve) => window.setTimeout(resolve, 450));
     }
     const stopped = stopRequested.current;
     setRunning(false);
+    setStopping(false);
     setMessage(stopped ? `Stopped after ${matched + failed} checks. Saved results are kept.` : `Info pass complete: ${matched} matched, ${failed} unavailable.`);
   };
+
+  const progressPercent = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
+  const estimatedRemaining = progress.done > 0 ? (elapsedSeconds / progress.done) * (progress.total - progress.done) : 0;
 
   return (
     <div className="finder-page">
@@ -142,17 +200,44 @@ export function Finder({ initialSeed, onSeedUsed }: FinderProps) {
         <div className="panel-heading"><div><span className="eyebrow red">COLLECTION-WIDE</span><h2>Fill information gaps</h2></div><Database /></div>
         <p>Runs the same finder sequentially across every collection, wishlist, and for-sale record. Results save after each Pop; recently checked records are skipped for 30 days.</p>
         <div className="batch-summary"><strong>{due.length.toLocaleString()}</strong><span>of {state.items.length.toLocaleString()} records due for a check</span></div>
-        {running && (
-          <div className="batch-progress">
-            <div><span style={{ width: `${(progress.done / Math.max(progress.total, 1)) * 100}%` }} /></div>
-            <p><strong>{progress.done.toLocaleString()} / {progress.total.toLocaleString()}</strong><span>{progress.current}</span><small>{progress.matched} matched · {progress.failed} unavailable</small></p>
+        {confirmBatch && !running && (
+          <div className="batch-confirmation" role="alert">
+            <Sparkles size={22} />
+            <div><strong>Ready to check {due.length.toLocaleString()} Pops</strong><p>The pass starts only after you confirm below. Keep this page open; you can stop safely at any time.</p></div>
           </div>
         )}
+        {(running || progress.total > 0) && (
+          <div className={`batch-progress-card ${running ? "running" : "finished"}`} aria-live="polite">
+            <div className="batch-progress-top">
+              <div className="batch-progress-percent"><strong>{progressPercent}%</strong><span>{running ? stopping ? "Stopping after this Pop…" : "Finder running" : "Last run"}</span></div>
+              <div className="batch-progress-time"><span>Elapsed <strong>{formatDuration(elapsedSeconds)}</strong></span>{running && progress.done > 0 && <span>About <strong>{formatDuration(estimatedRemaining)}</strong> remaining</span>}</div>
+            </div>
+            <div className="batch-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.done} aria-label="Pop information lookup progress"><span style={{ width: `${progressPercent}%` }} /></div>
+            <div className="batch-progress-detail">
+              <div className="batch-current-pop">{running && <LoaderCircle className="spin" size={16} />}<span>Current Pop</span><strong>{progress.current || "Preparing first lookup…"}</strong></div>
+              <div className="batch-progress-counts"><span><strong>{progress.done.toLocaleString()}</strong> / {progress.total.toLocaleString()} checked</span><span><strong>{progress.matched.toLocaleString()}</strong> matched</span><span><strong>{progress.failed.toLocaleString()}</strong> unavailable</span></div>
+            </div>
+            <div className="batch-live-updates"><span>Information added so far</span><strong>{progress.updates.records.toLocaleString()} records updated</strong><small>{progress.updates.images} images · {progress.updates.barcodes} barcodes · {progress.updates.skus} SKUs · {progress.updates.prices} price guides</small></div>
+          </div>
+        )}
+        {!running && progress.done > 0 && (
+          <section className="batch-update-summary">
+            <div><span className="eyebrow red">RUN SUMMARY</span><h3>{progress.updates.records.toLocaleString()} records gained information</h3><p>{progress.done.toLocaleString()} checked · {progress.matched.toLocaleString()} confident matches · {progress.failed.toLocaleString()} unavailable or uncertain</p></div>
+            <dl>
+              <div><dt>Images</dt><dd>{progress.updates.images.toLocaleString()}</dd></div>
+              <div><dt>Barcodes</dt><dd>{progress.updates.barcodes.toLocaleString()}</dd></div>
+              <div><dt>SKU / item IDs</dt><dd>{progress.updates.skus.toLocaleString()}</dd></div>
+              <div><dt>Descriptions</dt><dd>{progress.updates.descriptions.toLocaleString()}</dd></div>
+              <div><dt>Release dates</dt><dd>{progress.updates.releaseDates.toLocaleString()}</dd></div>
+              <div><dt>Box numbers</dt><dd>{progress.updates.boxNumbers.toLocaleString()}</dd></div>
+              <div><dt>Price guides</dt><dd>{progress.updates.prices.toLocaleString()}</dd></div>
+            </dl>
+          </section>
+        )}
         <div className="batch-actions">
-          {running ? <button className="button secondary" onClick={() => { stopRequested.current = true; }}><Pause size={16} /> Stop after this Pop</button> : confirmBatch ? <><button className="button primary" onClick={() => runBatch(false)}><Sparkles size={16} /> Start {due.length.toLocaleString()} checks</button><button className="button ghost" onClick={() => setConfirmBatch(false)}>Cancel</button></> : <button className="button primary" onClick={() => setConfirmBatch(true)} disabled={!due.length}><Sparkles size={16} /> Find info for all due Pops</button>}
+          {running ? <button className="button secondary" disabled={stopping} onClick={() => { stopRequested.current = true; setStopping(true); }}><Pause size={16} /> {stopping ? "Stopping…" : "Stop after this Pop"}</button> : confirmBatch ? <><button className="button primary" onClick={() => runBatch(false)}><Sparkles size={16} /> Start {due.length.toLocaleString()} checks</button><button className="button ghost" onClick={() => setConfirmBatch(false)}>Cancel</button></> : <button className="button primary" onClick={() => setConfirmBatch(true)} disabled={!due.length}><Sparkles size={16} /> Find info for all due Pops</button>}
           {!running && due.length === 0 && <button className="button ghost" onClick={() => runBatch(true)}><RotateCcw size={15} /> Refresh every Pop now</button>}
         </div>
-        {confirmBatch && <p className="fine-print">This can take a while for a large library. Keep this page open; you can stop safely at any time.</p>}
       </section>
     </div>
   );
