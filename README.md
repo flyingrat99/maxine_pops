@@ -1,5 +1,8 @@
 # Maxine's Pop Tracker
 
+> **Maxine using Windows 10?** Follow the plain-language
+> **[Start here, Maxine](START_HERE_MAXINE.md)** setup and AI handoff guide.
+
 A local-first Funko Pop collection tracker built for Maxine. It imports her
 existing workbook, adds catalog-assisted images, and keeps collection, wishlist,
 selling, gap-finding, and valuation workflows together in one comic-inspired
