@@ -5,6 +5,10 @@ existing workbook, adds catalog-assisted images, and keeps collection, wishlist,
 selling, gap-finding, and valuation workflows together in one comic-inspired
 app.
 
+For AI-assisted maintenance and feature work, give the assistant
+[`ai_instructions.md`](ai_instructions.md) together with Maxine's requested
+change.
+
 ## Start it
 
 The production build is committed to this repository, so running the tracker
