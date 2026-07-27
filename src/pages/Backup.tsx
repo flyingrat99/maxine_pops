@@ -2,6 +2,7 @@ import { AlertTriangle, DatabaseBackup, Download, FileJson, FileSpreadsheet, Rot
 import { useRef, useState } from "react";
 import { PageHeader } from "../components/Common";
 import { downloadFile, makeCsv } from "../lib";
+import { blobToDataUrl, embeddedPhotoToLocalReference, getLocalPhoto, isEmbeddedPhoto, isLocalPhotoReference } from "../photoStorage";
 import { useTracker } from "../store";
 import type { TrackerState } from "../types";
 
@@ -10,19 +11,46 @@ export function Backup() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState("");
   const [resetArmed, setResetArmed] = useState(false);
+  const [working, setWorking] = useState(false);
 
   const date = new Date().toISOString().slice(0, 10);
-  const exportJson = () => downloadFile(`maxines-pop-tracker-${date}.json`, JSON.stringify(state, null, 2), "application/json");
+  const exportJson = async () => {
+    setWorking(true);
+    setMessage("");
+    try {
+      const portableState = structuredClone(state);
+      for (const item of portableState.items) {
+        if (!isLocalPhotoReference(item.customImageUrl)) continue;
+        const photo = await getLocalPhoto(item.customImageUrl);
+        if (!photo) throw new Error(`The saved photo for ${item.name || "a Pop"} could not be read.`);
+        item.customImageUrl = await blobToDataUrl(photo);
+      }
+      downloadFile(`maxines-pop-tracker-${date}.json`, JSON.stringify(portableState, null, 2), "application/json");
+      setMessage("Full backup exported, including uploaded photos.");
+    } catch (error) {
+      setMessage(error instanceof Error ? `Export failed: ${error.message}` : "Export failed.");
+    } finally {
+      setWorking(false);
+    }
+  };
   const exportCsv = () => downloadFile(`maxines-pop-tracker-${date}.csv`, makeCsv(state.items, state.settings.currency), "text/csv;charset=utf-8");
   const importBackup = async (file: File | undefined) => {
     if (!file) return;
     try {
+      setWorking(true);
       const parsed = JSON.parse(await file.text()) as TrackerState;
+      if (!Array.isArray(parsed.items)) throw new Error("This backup does not contain an items list.");
+      for (const item of parsed.items) {
+        if (isEmbeddedPhoto(item.customImageUrl)) {
+          item.customImageUrl = await embeddedPhotoToLocalReference(item.customImageUrl);
+        }
+      }
       importState(parsed);
-      setMessage(`Imported ${parsed.items.length.toLocaleString()} records from ${file.name}.`);
+      setMessage(`Imported ${parsed.items.length.toLocaleString()} records and their uploaded photos from ${file.name}.`);
     } catch (error) {
       setMessage(error instanceof Error ? `Import failed: ${error.message}` : "Import failed.");
     }
+    setWorking(false);
     if (inputRef.current) inputRef.current.value = "";
   };
 
@@ -34,11 +62,11 @@ export function Backup() {
       <div className="backup-grid">
         <section className="panel backup-primary">
           <div className="panel-heading"><div><span className="eyebrow red">RECOMMENDED</span><h2>Portable JSON backup</h2></div><FileJson /></div>
-          <p>Keeps every edit, value, image choice, note, and setting. Use this file to move Maxine’s tracker to another PC.</p>
-          <button className="button primary" onClick={exportJson}><Download size={17} /> Export full backup</button>
+          <p>Keeps every edit, value, uploaded photo, image choice, note, and setting. Use this file to move Maxine’s tracker to another PC.</p>
+          <button className="button primary" disabled={working} onClick={() => void exportJson()}><Download size={17} /> {working ? "Preparing photos…" : "Export full backup"}</button>
           <div className="divider"><span>RESTORE</span></div>
           <input ref={inputRef} type="file" accept="application/json,.json" hidden onChange={(event) => importBackup(event.target.files?.[0])} />
-          <button className="button secondary" onClick={() => inputRef.current?.click()}><Upload size={17} /> Import a backup</button>
+          <button className="button secondary" disabled={working} onClick={() => inputRef.current?.click()}><Upload size={17} /> Import a backup</button>
         </section>
         <section className="panel">
           <div className="panel-heading"><div><span className="eyebrow red">SPREADSHEET</span><h2>CSV export</h2></div><FileSpreadsheet /></div>

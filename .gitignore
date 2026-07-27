@@ -9,6 +9,8 @@ __pycache__/
 !.env.example
 data/local-connections.json
 data/local-connections.json.tmp
+user-images/*
+!user-images/README.md
 
 # The production build is intentionally committed so the Windows launcher
 # can run without installing development dependencies.

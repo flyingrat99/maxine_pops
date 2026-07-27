@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { conditionOptions, createLocalId, extractFunkoItemNumber, mergeProductInfo, parsePrice, statusLabels } from "../lib";
 import type { Category, Condition, ItemStatus, PopItem } from "../types";
 import { InfoFinder } from "./InfoFinder";
+import { PhotoSourceField } from "./PhotoSourceField";
 import { PopImage } from "./PopImage";
 
 function blankItem(status: ItemStatus): PopItem {
@@ -89,7 +90,7 @@ export function ItemModal({ item, initialStatus, currency, useProxy, onClose, on
       upc: String(data.get("upc") || "").replace(/\D/g, ""),
       description: String(data.get("description") || "").trim(),
       releaseDate: String(data.get("releaseDate") || "").trim(),
-      customImageUrl: String(data.get("customImageUrl") || "").trim(),
+      customImageUrl: draft.customImageUrl.trim(),
       purchasePrice: parsePrice(data.get("purchasePrice")),
       estimatedValue: nextValue,
       askingPrice: parsePrice(data.get("askingPrice")),
@@ -138,7 +139,7 @@ export function ItemModal({ item, initialStatus, currency, useProxy, onClose, on
                 <label><span>Condition</span><select name="condition" defaultValue={draft.condition}>{conditionOptions.map((value) => <option key={value}>{value}</option>)}</select></label>
                 <label><span>Shelf / location</span><input name="location" defaultValue={draft.location} placeholder="e.g. Cabinet A · shelf 2" /></label>
               </div>
-              <label><span>Image or product page URL</span><input name="customImageUrl" type="url" value={draft.customImageUrl} onChange={(event) => setDraft((current) => ({ ...current, customImageUrl: event.target.value }))} placeholder="Paste an image, Amazon, Funko, PriceCharting, or retailer URL" /><small className="field-help">Amazon AU, Funko, and PriceCharting product pages can supply information and a preview image. Some protected retailer pages may require choosing an image from the market results.</small></label>
+              <PhotoSourceField inputName="customImageUrl" value={draft.customImageUrl} onChange={(customImageUrl) => setDraft((current) => ({ ...current, customImageUrl }))} />
               {draft.catalogMatch && !draft.customImageUrl && (
                 <div className="catalog-note">
                   <AlertTriangle size={16} />

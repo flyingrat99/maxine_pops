@@ -156,7 +156,12 @@ This is important, especially before asking an AI to change the app:
 4. Keep several dated backups rather than replacing the same one every time.
 
 The JSON backup can restore your collection, wishlist, items for sale, notes,
-values, images, identifiers, and other edits.
+values, uploaded photos, other image choices, identifiers, and other edits.
+
+Photos uploaded through the tracker are also visible as normal files in the
+app’s `user-images` folder. Do not rename those files by hand; use the tracker to
+replace a Pop’s photo. The full JSON backup is the easiest way to move both the
+records and photos to another copy of the app.
 
 ---
 

@@ -51,9 +51,13 @@ technical steps when the repository gives you enough context to proceed.
 
 Maxine's current browser collection is more important than the checked-in seed
 file. The app stores browser state under `maxines-pop-tracker:v1` in
-`localStorage`.
+`localStorage`. Uploaded photo files are user data too; the server keeps them in
+`user-images/` and Pop records refer to those filenames.
 
 - Never clear, overwrite, or migrate browser storage casually.
+- Never delete, clean, rename, or commit files in `user-images/` unless Maxine
+  explicitly requests that exact operation. Automated tests must remove only
+  the uniquely named test files they created.
 - Before a risky storage/schema change, tell Maxine to export a JSON backup and
   implement backward-compatible normalization or migration.
 - Use a fresh browser profile for automated UI testing. Do not test destructive
@@ -84,6 +88,8 @@ Read `README.md` before changing behavior. The main implementation is:
 - `src/lib.ts` — shared identifiers, images, search links, merging, and exports
 - `src/components/ItemModal.tsx` — add/edit Pop workflow
 - `src/components/InfoFinder.tsx` — shared information-finder interface
+- `src/components/PhotoSourceField.tsx` — shared URL and local-photo upload controls
+- `src/photoStorage.ts` — image resizing, folder-upload client, and backup helpers
 - `src/pages/Finder.tsx` — any-Pop and whole-library enrichment workflows
 - `src/pages/Gaps.tsx` — number-run gaps and discovery candidates
 - `src/pages/Library.tsx` — collection, wishlist, and for-sale views
@@ -92,7 +98,8 @@ Read `README.md` before changing behavior. The main implementation is:
 - `src/pages/Settings.tsx` — local preferences and source explanations
 - `src/styles.css` — the established responsive design system
 - `server.mjs` — static production server, safe image previews, and public
-  product-information enrichment
+  product-information enrichment; it also validates uploads and serves files
+  from `user-images/`
 - `scripts/validate_data.mjs` — validation for checked-in collection/catalog data
 - `dist/` — committed production build used by the single-command launchers
 

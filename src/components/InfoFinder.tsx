@@ -1,6 +1,7 @@
 import { Check, ExternalLink, ImageIcon, Info, LoaderCircle, Search, Sparkles } from "lucide-react";
 import { useMemo, useState } from "react";
 import { formatMoney, marketLinks } from "../lib";
+import { isEmbeddedPhoto, isLocalPhotoReference } from "../photoStorage";
 import type { PopItem, ProductInfoResponse } from "../types";
 
 type FinderItem = Pick<PopItem, "name" | "number" | "series" | "sku" | "upc" | "customImageUrl">;
@@ -11,10 +12,14 @@ interface InfoFinderProps {
 }
 
 export async function requestProductInfo(item: FinderItem, signal?: AbortSignal): Promise<ProductInfoResponse> {
+  const searchableItem = {
+    ...item,
+    customImageUrl: isLocalPhotoReference(item.customImageUrl) || isEmbeddedPhoto(item.customImageUrl) ? "" : item.customImageUrl,
+  };
   const response = await fetch("/api/products/enrich", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(item),
+    body: JSON.stringify(searchableItem),
     signal,
   });
   const payload = await response.json() as ProductInfoResponse & { error?: string };

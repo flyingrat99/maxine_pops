@@ -1,4 +1,5 @@
 import type { PopItem, ProductInfoResponse } from "./types";
+import { isEmbeddedPhoto, isLocalPhotoReference } from "./photoStorage";
 
 export const statusLabels = {
   owned: "Collection",
@@ -52,6 +53,8 @@ export function formatMoney(value: number | null | undefined, currency = "NZD"):
 
 export function getImageUrl(item: PopItem, useProxy = true): string {
   const source = item.customImageUrl || item.catalogMatch?.imageUrl || "";
+  if (isLocalPhotoReference(source)) return source;
+  if (isEmbeddedPhoto(source)) return source;
   if (item.customImageUrl && !/\.(?:avif|gif|jpe?g|png|svg|webp)(?:$|[?#])/i.test(source)) {
     return `/api/images/preview?url=${encodeURIComponent(source)}`;
   }

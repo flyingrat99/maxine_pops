@@ -1,12 +1,14 @@
 import { createServer } from "node:http";
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 
 const appRoot = fileURLToPath(new URL(".", import.meta.url));
 const distRoot = join(appRoot, "dist");
+const userImagesRoot = join(appRoot, "user-images");
 const portArgIndex = process.argv.indexOf("--port");
 const parsedPort = portArgIndex >= 0 ? Number(process.argv[portArgIndex + 1]) : Number(process.env.PORT);
 const port = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 4173;
@@ -15,6 +17,7 @@ const requestedHost = hostArgIndex >= 0 ? process.argv[hostArgIndex + 1] : proce
 const bindHost = requestedHost && /^[a-zA-Z0-9.:[\]-]+$/.test(requestedHost) ? requestedHost : "127.0.0.1";
 
 const contentTypes = {
+  ".avif": "image/avif",
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".ico": "image/x-icon",
@@ -612,6 +615,18 @@ async function existingFile(pathname) {
   }
 }
 
+async function existingUserImage(pathname) {
+  const match = pathname.match(/^\/user-images\/([a-f0-9-]+\.(?:avif|jpg|png|webp))$/i);
+  if (!match) return null;
+  const requested = join(userImagesRoot, match[1]);
+  try {
+    const info = await stat(requested);
+    return info.isFile() ? requested : null;
+  } catch {
+    return null;
+  }
+}
+
 function json(response, status, payload) {
   response.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
@@ -630,7 +645,40 @@ async function requestBody(request) {
   return text ? JSON.parse(text) : {};
 }
 
+async function requestBinary(request, maximumBytes) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of request) {
+    total += chunk.length;
+    if (total > maximumBytes) throw new Error("Uploaded photo is too large.");
+    chunks.push(chunk);
+  }
+  if (!total) throw new Error("No photo data was received.");
+  return Buffer.concat(chunks);
+}
+
+function validImageSignature(body, type) {
+  if (type === "image/webp") return body.length >= 12 && body.toString("ascii", 0, 4) === "RIFF" && body.toString("ascii", 8, 12) === "WEBP";
+  if (type === "image/png") return body.length >= 8 && body.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  if (type === "image/jpeg") return body.length >= 3 && body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff;
+  if (type === "image/avif") return body.length >= 12 && body.toString("ascii", 4, 8) === "ftyp" && /^(?:avif|avis)$/.test(body.toString("ascii", 8, 12));
+  return false;
+}
+
 async function handleApi(request, response, url) {
+  if (request.method === "POST" && url.pathname === "/api/images/upload") {
+    const type = String(request.headers["content-type"] || "").split(";", 1)[0].toLowerCase();
+    const extension = { "image/avif": "avif", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }[type];
+    if (!extension) throw new Error("Only JPG, PNG, WebP, and AVIF photos can be saved.");
+    const body = await requestBinary(request, 2 * 1024 * 1024);
+    if (!validImageSignature(body, type)) throw new Error("The uploaded file does not contain a valid image.");
+    await mkdir(userImagesRoot, { recursive: true });
+    const filename = `${randomUUID()}.${extension}`;
+    await writeFile(join(userImagesRoot, filename), body, { flag: "wx" });
+    json(response, 201, { url: `/user-images/${filename}` });
+    return true;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/products/enrich") {
     json(response, 200, await enrichProduct(await requestBody(request)));
     return true;
@@ -658,6 +706,21 @@ const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
     if (await handleApi(request, response, url)) return;
+    if (url.pathname.startsWith("/user-images/")) {
+      const image = await existingUserImage(url.pathname);
+      if (!image) {
+        response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "X-Content-Type-Options": "nosniff" });
+        response.end("Photo not found.");
+        return;
+      }
+      response.writeHead(200, {
+        "Content-Type": contentTypes[extname(image)] ?? "application/octet-stream",
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
+      });
+      response.end(await readFile(image));
+      return;
+    }
     const file = (await existingFile(url.pathname)) ?? join(distRoot, "index.html");
     const body = await readFile(file);
     response.writeHead(200, {

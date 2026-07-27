@@ -60,7 +60,7 @@ port, or run `node server.mjs --host 0.0.0.0` to make it reachable on the LAN.
 - Suggested product images matched against
   [`kennymkchan/funko-pop-data`](https://github.com/kennymkchan/funko-pop-data).
 - Search, category/series filters, favourites, condition, shelf location, notes,
-  quantity, and custom image editing.
+  quantity, custom image URLs, and photo uploads from the computer or phone.
 - Per-Pop cost, estimated value, asking price, valuation source, and date.
 - Per-Pop SKU/Funko item ID and UPC/EAN barcode fields, included in search,
   information searches, JSON backups, and CSV exports.
@@ -75,7 +75,7 @@ port, or run `node server.mjs --host 0.0.0.0` to make it reachable on the LAN.
 - Collection-level recorded value, cost, paper gain/loss, and valuation coverage.
 - Trade Me, eBay sold, Funko, and PriceCharting research links without API keys.
 - Number-run gap finder and an unowned-candidate catalog explorer.
-- Full JSON backup/restore and CSV export.
+- Full JSON backup/restore (including uploaded photos) and CSV export.
 - Browser-local persistence: no database or hosted account is required.
 
 The app intentionally ignores `Movie order for shelves`, `Sheet5`, and the
@@ -113,10 +113,15 @@ and image links, but its data was last updated on 3 January 2021 and the project
 is now deprecated. It does not contain box numbers or prices. Suggested matches
 are visibly marked and can be replaced with a custom image URL.
 
-The item editor also accepts a supported Amazon AU, Funko, PriceCharting, or retailer
-product-page URL and uses its advertised preview image when the site permits
-metadata access. Always verify the figure, box number, sticker, and variant
-before applying a match.
+The item editor and standalone Pop Info Finder can upload a photo from the local
+computer or phone. Photos are resized automatically and saved as ordinary files
+in the app’s `user-images` folder. They are deliberately excluded from Git so
+personal photos are not published with code updates. A full JSON backup embeds
+the photos so they move to another PC with the collection.
+The same controls also accept a supported Amazon AU, Funko, PriceCharting, or
+retailer product-page URL and use its advertised preview image when the site
+permits metadata access. Always verify the figure, box number, sticker, and
+variant before applying a match.
 
 Some old hobbyDB image links reject direct hotlinking. The optional image helper
 uses the open-source [wsrv.nl image service](https://wsrv.nl/) to display those
