@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -7,14 +7,12 @@ import { hostname } from "node:os";
 
 const appRoot = fileURLToPath(new URL(".", import.meta.url));
 const distRoot = join(appRoot, "dist");
-const connectionFile = join(appRoot, "data", "local-connections.json");
 const portArgIndex = process.argv.indexOf("--port");
 const parsedPort = portArgIndex >= 0 ? Number(process.argv[portArgIndex + 1]) : Number(process.env.PORT);
 const port = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 4173;
 const hostArgIndex = process.argv.indexOf("--host");
 const requestedHost = hostArgIndex >= 0 ? process.argv[hostArgIndex + 1] : process.env.HOST;
 const bindHost = requestedHost && /^[a-zA-Z0-9.:[\]-]+$/.test(requestedHost) ? requestedHost : "127.0.0.1";
-let ebayTokenCache = null;
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -35,6 +33,7 @@ const previewDomains = [
   "pricecharting.com", "trademe.co.nz",
 ];
 const previewCache = new Map();
+const enrichmentCache = new Map();
 
 function isAllowedPreviewHost(hostname) {
   const host = hostname.toLowerCase();
@@ -178,6 +177,297 @@ async function resolveProductPageImage(rawUrl) {
   return parsedImage.href;
 }
 
+function plainText(value) {
+  return decodeHtml(String(value || "")
+    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " "))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function escapePattern(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function tableDetail(html, label) {
+  const match = html.match(new RegExp(`<td\\b[^>]*class=["'][^"']*title[^"']*["'][^>]*>\\s*${escapePattern(label)}:?\\s*<\\/td>\\s*<td\\b[^>]*class=["'][^"']*details[^"']*["'][^>]*>([\\s\\S]*?)<\\/td>`, "i"));
+  const value = plainText(match?.[1] || "");
+  return /^(?:none|n\/a)$/i.test(value) ? "" : value;
+}
+
+function numericPrice(html, id) {
+  const block = html.match(new RegExp(`<td\\b[^>]*id=["']${escapePattern(id)}["'][^>]*>([\\s\\S]*?)<\\/td>`, "i"))?.[1] || "";
+  const amount = plainText(block).match(/[\d,.]+/)?.[0]?.replace(/,/g, "");
+  const parsed = Number(amount);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeIdentity(value) {
+  return plainText(value)
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/spider[- ]?man/g, "spider man")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function identityScore(input, candidate) {
+  const inputUpc = String(input.upc || "").replace(/\D/g, "");
+  if (inputUpc && candidate.upc && inputUpc === candidate.upc) return 1;
+  const inputNumber = String(input.number || "").replace(/^#/, "").trim();
+  if (inputNumber && candidate.number && inputNumber !== candidate.number) return 0;
+  const noise = new Set(["funko", "pop", "vinyl", "the", "and"]);
+  const sourceTokens = new Set(normalizeIdentity(input.name).split(" ").filter((word) => word && !noise.has(word)));
+  const targetTokens = new Set(normalizeIdentity(candidate.name).split(" ").filter((word) => word && !noise.has(word)));
+  const overlap = [...sourceTokens].filter((word) => targetTokens.has(word)).length;
+  const tokenScore = overlap / Math.max(sourceTokens.size, targetTokens.size, 1);
+  const numberScore = inputNumber && candidate.number ? 1 : inputNumber || candidate.number ? 0.35 : 0.6;
+  return Math.min(1, tokenScore * 0.78 + numberScore * 0.22);
+}
+
+function priceChartingProduct(html, pageUrl) {
+  const heading = html.match(/<h1\b[^>]*id=["']product_name["'][^>]*>([\s\S]*?)<\/h1>/i)?.[1] || "";
+  if (!heading) return null;
+  const beforeLink = heading.split(/<a\b/i)[0];
+  const fullName = plainText(beforeLink);
+  const number = fullName.match(/#\s*(\d+[A-Za-z]?)(?:\s|$)/)?.[1] || "";
+  const name = fullName.replace(/\s*#\s*\d+[A-Za-z]?\s*$/, "").trim();
+  const catalogName = plainText(heading.match(/<a\b[^>]*>([\s\S]*?)<\/a>/i)?.[1] || "").replace(/^Funko\s+POP\s*/i, "").trim();
+  const canonical = tagAttribute(html.match(/<link\b[^>]*rel=["']canonical["'][^>]*>/i)?.[0] || "", "href") || pageUrl.href;
+  const releaseDate = tableDetail(html, "Release Date");
+  const upc = tableDetail(html, "UPC").replace(/\D/g, "");
+  const description = tableDetail(html, "Description") || tableDetail(html, "Notes");
+  const currency = plainText(html.match(/<a\b[^>]*id=["']dropdown_selected_currency["'][^>]*>([\s\S]*?)<\/a>/i)?.[1] || "") || "USD";
+  const checkedAt = new Date().toISOString();
+  return {
+    name,
+    number,
+    series: catalogName,
+    sku: "",
+    upc,
+    description,
+    releaseDate,
+    imageUrl: productImageFromHtml(html, pageUrl),
+    referencePrices: {
+      currency,
+      outOfBox: numericPrice(html, "used_price"),
+      damagedBox: numericPrice(html, "complete_price"),
+      newInBox: numericPrice(html, "new_price"),
+      source: "PriceCharting",
+      sourceUrl: canonical,
+      checkedAt,
+    },
+    infoSources: [{ name: "PriceCharting", url: canonical, checkedAt }],
+    sourceUrl: canonical,
+  };
+}
+
+function productObjects(value) {
+  const found = [];
+  const pending = [value];
+  while (pending.length) {
+    const current = pending.shift();
+    if (!current || typeof current !== "object") continue;
+    const types = Array.isArray(current["@type"]) ? current["@type"] : [current["@type"]];
+    if (types.some((type) => String(type).toLowerCase() === "product")) found.push(current);
+    if (Array.isArray(current)) pending.push(...current);
+    else pending.push(...Object.values(current));
+  }
+  return found;
+}
+
+function funkoProductFromHtml(html, expectedItem) {
+  for (const match of html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      for (const product of productObjects(JSON.parse(match[1].trim()))) {
+        const item = String(product.sku || product.mpn || "").replace(/\D/g, "");
+        if (item !== expectedItem) continue;
+        return {
+          name: plainText(product.name || ""),
+          sku: `FUN${item}`,
+          upc: String(product.gtin12 || product.gtin13 || "").replace(/\D/g, ""),
+          description: plainText(product.description || ""),
+          imageUrl: jsonImage(product.image),
+          sourceUrl: String(product["@id"] || product.url || product.offers?.url || `https://funko.com/search/?q=${item}`),
+        };
+      }
+    } catch {
+      // Ignore malformed third-party structured data and try the next block.
+    }
+  }
+  return null;
+}
+
+function extractFunkoItemNumber(value) {
+  const compact = String(value || "").trim().toUpperCase().replace(/[\s-]+/g, "");
+  const skuMatch = compact.match(/^(?:FUN|FK)(\d{4,6})$/);
+  if (skuMatch) return skuMatch[1];
+  const digits = compact.replace(/\D/g, "");
+  const upc = digits.length === 13 && digits.startsWith("0") ? digits.slice(1) : digits;
+  const barcodeMatch = upc.match(/^889698(\d{5})(\d)$/);
+  if (barcodeMatch) return barcodeMatch[1];
+  return /^\d{4,6}$/.test(digits) ? digits : "";
+}
+
+function searchLinks(item) {
+  const nameQuery = ["Funko Pop", item.name, item.number ? `#${item.number}` : "", item.series && item.series !== "Unsorted" ? item.series : "", item.sku].filter(Boolean).join(" ");
+  const priceQuery = item.upc || nameQuery;
+  const ebayQuery = ["Funko", item.name, item.upc || item.sku, item.number ? `#${item.number}` : ""].filter(Boolean).join(" ");
+  return {
+    priceCharting: `https://www.pricecharting.com/search-products?type=prices&q=${encodeURIComponent(priceQuery)}`,
+    ebay: `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(ebayQuery)}&LH_Sold=1&LH_Complete=1`,
+    tradeMe: `https://www.trademe.co.nz/a/marketplace/search?search_string=${encodeURIComponent(nameQuery)}`,
+  };
+}
+
+async function htmlPage(url) {
+  const { result, current } = await fetchPreviewPage(new URL(url));
+  if (!result.ok) {
+    await result.body?.cancel();
+    throw new Error(`Source returned ${result.status}.`);
+  }
+  const type = result.headers.get("content-type") || "";
+  if (!type.includes("html")) {
+    await result.body?.cancel();
+    throw new Error("Source did not return a product page.");
+  }
+  return { html: await result.text(), current };
+}
+
+async function findPriceCharting(item, stages) {
+  const direct = (() => {
+    try {
+      const url = new URL(item.customImageUrl || "");
+      return /(^|\.)pricecharting\.com$/i.test(url.hostname) ? url.href : "";
+    } catch {
+      return "";
+    }
+  })();
+  const links = searchLinks(item);
+  const queries = [direct || links.priceCharting];
+  if (!direct && item.upc) queries.push(searchLinks({ ...item, upc: "" }).priceCharting);
+  let best = null;
+  let bestScore = 0;
+  let identifierConfirmed = false;
+
+  for (const query of [...new Set(queries)]) {
+    try {
+      const { html, current } = await htmlPage(query);
+      const product = priceChartingProduct(html, current);
+      if (!product) continue;
+      const hasIdentity = Boolean(item.name || item.number || item.sku || item.upc);
+      const score = direct && !hasIdentity ? 0.98 : identityScore(item, product);
+      if (score > bestScore) {
+        best = product;
+        bestScore = score;
+      }
+      if (score >= 0.9) break;
+    } catch {
+      // A later, less-specific search may still succeed.
+    }
+  }
+
+  if (!best || bestScore < 0.55) {
+    stages.push({ source: "PriceCharting", status: "searched", message: "No confident exact product was found; use the source link to verify variants.", url: links.priceCharting });
+    return null;
+  }
+
+  if (!item.upc && best.upc) {
+    try {
+      const confirmedUrl = searchLinks({ ...item, upc: best.upc }).priceCharting;
+      const { html, current } = await htmlPage(confirmedUrl);
+      const confirmed = priceChartingProduct(html, current);
+      if (confirmed?.sourceUrl === best.sourceUrl) identifierConfirmed = true;
+    } catch {
+      // The first high-confidence result remains useful when identifier confirmation is unavailable.
+    }
+  }
+
+  stages.push({ source: "PriceCharting", status: "matched", message: `Matched ${best.name}${best.number ? ` #${best.number}` : ""}; found pricing${best.upc ? identifierConfirmed ? " and confirmed the discovered UPC" : " and UPC" : ""}.`, url: best.sourceUrl });
+  return { ...best, confidence: bestScore };
+}
+
+async function findFunko(item, stages) {
+  const itemNumber = extractFunkoItemNumber(item.sku) || extractFunkoItemNumber(item.upc);
+  if (!itemNumber) {
+    stages.push({ source: "Funko", status: "unavailable", message: "A Funko item ID or modern Funko barcode is needed for an exact official lookup.", url: `https://funko.com/search/?q=${encodeURIComponent(item.name || "Funko Pop")}` });
+    return null;
+  }
+  const searchUrl = `https://funko.com/search/?q=${encodeURIComponent(itemNumber)}`;
+  try {
+    const { html } = await htmlPage(searchUrl);
+    const product = funkoProductFromHtml(html, itemNumber);
+    if (!product) throw new Error("No exact official product was returned.");
+    stages.push({ source: "Funko", status: "matched", message: `Official item ${itemNumber} matched${product.name ? ` to ${product.name}` : ""}.`, url: product.sourceUrl });
+    return product;
+  } catch (error) {
+    stages.push({ source: "Funko", status: "unavailable", message: error instanceof Error ? error.message : "Official lookup was unavailable.", url: searchUrl });
+    return null;
+  }
+}
+
+async function enrichProduct(raw) {
+  const item = {
+    name: plainText(raw.name).slice(0, 200),
+    number: plainText(raw.number).replace(/^#/, "").slice(0, 20),
+    series: plainText(raw.series).slice(0, 160),
+    sku: plainText(raw.sku).toUpperCase().slice(0, 50),
+    upc: String(raw.upc || "").replace(/\D/g, "").slice(0, 14),
+    customImageUrl: String(raw.customImageUrl || "").trim().slice(0, 2_048),
+  };
+  let directPriceCharting = false;
+  try {
+    const customUrl = new URL(item.customImageUrl);
+    directPriceCharting = /(^|\.)pricecharting\.com$/i.test(customUrl.hostname);
+  } catch {
+    // A normal image URL is not enough to identify a product.
+  }
+  if (item.name.length < 2 && !item.sku && !item.upc && !directPriceCharting) throw new Error("Add a title, SKU, barcode, or PriceCharting product URL before finding information.");
+  const cacheKey = JSON.stringify(item);
+  const cached = enrichmentCache.get(cacheKey);
+  if (cached?.expiresAt > Date.now()) return cached.payload;
+
+  const stages = [];
+  const priceCharting = await findPriceCharting(item, stages);
+  const discovered = {
+    ...item,
+    name: priceCharting?.name || item.name,
+    number: priceCharting?.number || item.number,
+    series: priceCharting?.series || item.series,
+    upc: priceCharting?.upc || item.upc,
+  };
+  const funko = await findFunko(discovered, stages);
+  if (funko?.upc && !discovered.upc) discovered.upc = funko.upc;
+
+  const checkedAt = new Date().toISOString();
+  const suggestion = priceCharting || funko ? {
+    name: priceCharting?.name || funko?.name || item.name,
+    number: priceCharting?.number || item.number,
+    series: priceCharting?.series || item.series,
+    sku: funko?.sku || item.sku,
+    upc: priceCharting?.upc || funko?.upc || item.upc,
+    description: priceCharting?.description || funko?.description || "",
+    releaseDate: priceCharting?.releaseDate || "",
+    imageUrl: priceCharting?.imageUrl || funko?.imageUrl || "",
+    referencePrices: priceCharting?.referencePrices || null,
+    infoSources: [
+      ...(priceCharting?.infoSources || []),
+      ...(funko ? [{ name: "Funko", url: funko.sourceUrl, checkedAt }] : []),
+    ],
+    confidence: priceCharting?.confidence ?? (funko ? 1 : 0),
+  } : null;
+  const finalIdentity = suggestion ? { ...item, ...suggestion } : item;
+  const links = searchLinks(finalIdentity);
+  stages.push({ source: "eBay sold", status: "searched", message: "A public sold-listing search is ready for manual condition and sticker comparison.", url: links.ebay });
+  stages.push({ source: "Trade Me", status: "searched", message: "A New Zealand marketplace search is ready for local asking-price comparison.", url: links.tradeMe });
+  const payload = { suggestion, stages, links, checkedAt };
+  enrichmentCache.set(cacheKey, { payload, expiresAt: Date.now() + 6 * 60 * 60 * 1_000 });
+  return payload;
+}
+
 async function existingFile(pathname) {
   const cleanPath = normalize(decodeURIComponent(pathname)).replace(/^(\.\.(\/|\\|$))+/, "");
   const requested = join(distRoot, cleanPath === "/" ? "index.html" : cleanPath);
@@ -190,22 +480,6 @@ async function existingFile(pathname) {
   }
 }
 
-async function readConnections() {
-  try {
-    return JSON.parse(await readFile(connectionFile, "utf8"));
-  } catch (error) {
-    if (error && error.code === "ENOENT") return {};
-    throw error;
-  }
-}
-
-async function writeConnections(config) {
-  const temporary = connectionFile + ".tmp";
-  await mkdir(join(appRoot, "data"), { recursive: true });
-  await writeFile(temporary, JSON.stringify(config, null, 2), { encoding: "utf8", mode: 0o600 });
-  await rename(temporary, connectionFile);
-}
-
 function json(response, status, payload) {
   response.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
@@ -213,11 +487,6 @@ function json(response, status, payload) {
     "X-Content-Type-Options": "nosniff",
   });
   response.end(JSON.stringify(payload));
-}
-
-function redirect(response, location) {
-  response.writeHead(302, { Location: location, "Cache-Control": "no-store" });
-  response.end();
 }
 
 async function requestBody(request) {
@@ -229,138 +498,12 @@ async function requestBody(request) {
   return text ? JSON.parse(text) : {};
 }
 
-function publicConnectionStatus(config) {
-  const ebay = config.ebay ?? {};
-  const trademe = config.trademe ?? {};
-  return {
-    ebay: {
-      configured: Boolean(ebay.clientId && ebay.clientSecret),
-      marketplace: ebay.marketplace || "EBAY_AU",
-      label: ebay.clientId && ebay.clientSecret ? `Configured · ${ebay.marketplace || "EBAY_AU"}` : "Not configured",
-    },
-    trademe: {
-      configured: Boolean(trademe.consumerKey && trademe.consumerSecret),
-      connected: Boolean(trademe.oauthToken && trademe.oauthTokenSecret),
-      environment: trademe.environment === "sandbox" ? "sandbox" : "production",
-      label: trademe.oauthToken && trademe.oauthTokenSecret ? "Member connected" : trademe.consumerKey && trademe.consumerSecret ? "App configured" : "Not configured",
-    },
-  };
-}
-
-function cleanSecret(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function oauthEncode(value) {
-  return encodeURIComponent(String(value)).replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
-}
-
-function oauthHeader(values) {
-  return "OAuth " + Object.entries(values)
-    .filter(([, value]) => value !== undefined && value !== null && value !== "")
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${oauthEncode(key)}="${oauthEncode(value)}"`)
-    .join(", ");
-}
-
-function tradeMeBase(environment) {
-  return environment === "sandbox" ? "https://api.tmsandbox.co.nz" : "https://api.trademe.co.nz";
-}
-
-function tradeMeAuth(config, extras = {}) {
-  const consumerSecret = config.consumerSecret || "";
-  const tokenSecret = extras.tokenSecret ?? config.oauthTokenSecret ?? "";
-  return oauthHeader({
-    oauth_callback: extras.callback,
-    oauth_consumer_key: config.consumerKey,
-    oauth_signature: `${consumerSecret}&${tokenSecret}`,
-    oauth_signature_method: "PLAINTEXT",
-    oauth_token: extras.token ?? config.oauthToken,
-    oauth_verifier: extras.verifier,
-    oauth_version: "1.0",
-  });
-}
-
-async function ebayToken(ebay) {
-  if (ebayTokenCache && ebayTokenCache.clientId === ebay.clientId && ebayTokenCache.expiresAt > Date.now() + 60_000) {
-    return ebayTokenCache.token;
-  }
-  const credentials = Buffer.from(`${ebay.clientId}:${ebay.clientSecret}`).toString("base64");
-  const response = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${credentials}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ grant_type: "client_credentials", scope: "https://api.ebay.com/oauth/api_scope" }),
-  });
-  const payload = await response.json();
-  if (!response.ok || !payload.access_token) throw new Error(payload.error_description || payload.error || `eBay authorization failed (${response.status}).`);
-  ebayTokenCache = {
-    clientId: ebay.clientId,
-    token: payload.access_token,
-    expiresAt: Date.now() + Number(payload.expires_in || 7200) * 1000,
-  };
-  return payload.access_token;
-}
-
-async function searchEbay(query, ebay) {
-  if (!ebay?.clientId || !ebay?.clientSecret) throw new Error("eBay API credentials are not configured. Open Settings to add them.");
-  const token = await ebayToken(ebay);
-  const endpoint = new URL("https://api.ebay.com/buy/browse/v1/item_summary/search");
-  endpoint.search = new URLSearchParams({ q: query, limit: "24", filter: "buyingOptions:{FIXED_PRICE|AUCTION}" }).toString();
-  const response = await fetch(endpoint, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "X-EBAY-C-MARKETPLACE-ID": ebay.marketplace || "EBAY_AU",
-    },
-  });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload.errors?.[0]?.message || `eBay search failed (${response.status}).`);
-  return {
-    source: "ebay",
-    query,
-    total: payload.total || 0,
-    listings: (payload.itemSummaries || []).map((item) => ({
-      id: item.itemId,
-      title: item.title || "eBay listing",
-      price: Number(item.price?.value || item.currentBidPrice?.value || 0),
-      currency: item.price?.currency || item.currentBidPrice?.currency || "AUD",
-      imageUrl: item.image?.imageUrl || item.thumbnailImages?.[0]?.imageUrl || "",
-      url: item.itemWebUrl || "https://www.ebay.com/",
-      condition: item.condition || "",
-      buyingOption: (item.buyingOptions || []).join(", "),
-    })).filter((item) => item.price > 0),
-  };
-}
-
-async function searchTradeMe(query, trademe) {
-  if (!trademe?.consumerKey || !trademe?.consumerSecret) throw new Error("Trade Me API credentials are not configured. Open Settings to add them.");
-  const endpoint = new URL(`${tradeMeBase(trademe.environment)}/v1/Search/General.json`);
-  endpoint.search = new URLSearchParams({ search_string: query, rows: "24", photo_size: "List", sort_order: "Default" }).toString();
-  const response = await fetch(endpoint, { headers: { Authorization: tradeMeAuth(trademe) } });
-  const payload = await response.json();
-  if (!response.ok) throw new Error(payload.ErrorDescription || payload.Message || `Trade Me search failed (${response.status}).`);
-  const webBase = trademe.environment === "sandbox" ? "https://www.tmsandbox.co.nz" : "https://www.trademe.co.nz";
-  return {
-    source: "trademe",
-    query,
-    total: payload.TotalCount || 0,
-    listings: (payload.List || []).map((item) => ({
-      id: String(item.ListingId),
-      title: item.Title || "Trade Me listing",
-      price: Number(item.BuyNowPrice || item.MaxBidAmount || item.StartPrice || 0),
-      currency: "NZD",
-      imageUrl: item.PictureHref || "",
-      url: `${webBase}/a/marketplace/listing/${item.ListingId}`,
-      condition: item.IsNew ? "New" : "Used / unspecified",
-      buyingOption: item.HasBuyNow ? "Buy Now" : "Auction",
-    })).filter((item) => item.price > 0),
-  };
-}
-
 async function handleApi(request, response, url) {
-  const config = await readConnections();
+  if (request.method === "POST" && url.pathname === "/api/products/enrich") {
+    json(response, 200, await enrichProduct(await requestBody(request)));
+    return true;
+  }
+
   if (request.method === "GET" && url.pathname === "/api/images/preview") {
     const imageUrl = await resolveProductPageImage((url.searchParams.get("url") || "").trim());
     response.writeHead(302, {
@@ -369,135 +512,6 @@ async function handleApi(request, response, url) {
       "X-Content-Type-Options": "nosniff",
     });
     response.end();
-    return true;
-  }
-
-  if (request.method === "GET" && url.pathname === "/api/connections") {
-    json(response, 200, publicConnectionStatus(config));
-    return true;
-  }
-
-  if (request.method === "POST" && url.pathname === "/api/connections/ebay") {
-    const body = await requestBody(request);
-    const current = config.ebay ?? {};
-    const next = {
-      clientId: cleanSecret(body.clientId) || current.clientId || "",
-      clientSecret: cleanSecret(body.clientSecret) || current.clientSecret || "",
-      marketplace: ["EBAY_AU", "EBAY_US", "EBAY_GB"].includes(body.marketplace) ? body.marketplace : current.marketplace || "EBAY_AU",
-    };
-    if (!next.clientId || !next.clientSecret) throw new Error("Enter both the eBay Client ID and Client Secret.");
-    await writeConnections({ ...config, ebay: next });
-    ebayTokenCache = null;
-    json(response, 200, { message: "eBay app credentials saved in the local credential file." });
-    return true;
-  }
-
-  if (request.method === "POST" && url.pathname === "/api/connections/trademe") {
-    const body = await requestBody(request);
-    const current = config.trademe ?? {};
-    const next = {
-      ...current,
-      consumerKey: cleanSecret(body.consumerKey) || current.consumerKey || "",
-      consumerSecret: cleanSecret(body.consumerSecret) || current.consumerSecret || "",
-      environment: body.environment === "sandbox" ? "sandbox" : body.environment === "production" ? "production" : current.environment || "production",
-    };
-    if (!next.consumerKey || !next.consumerSecret) throw new Error("Enter both the Trade Me Consumer Key and Consumer Secret.");
-    if (current.environment && current.environment !== next.environment) {
-      delete next.oauthToken;
-      delete next.oauthTokenSecret;
-    }
-    await writeConnections({ ...config, trademe: next });
-    json(response, 200, { message: "Trade Me app credentials saved in the local credential file." });
-    return true;
-  }
-
-  if (request.method === "POST" && url.pathname === "/api/connections/ebay/test") {
-    const result = await searchEbay("Funko Pop Marvel", config.ebay);
-    json(response, 200, { message: `eBay connection works — found ${result.total.toLocaleString()} active results.` });
-    return true;
-  }
-
-  if (request.method === "POST" && url.pathname === "/api/connections/trademe/test") {
-    const result = await searchTradeMe("Funko Pop", config.trademe);
-    json(response, 200, { message: `Trade Me connection works — found ${result.total.toLocaleString()} active results.` });
-    return true;
-  }
-
-  if (request.method === "POST" && url.pathname === "/api/connections/trademe/start") {
-    const trademe = config.trademe;
-    if (!trademe?.consumerKey || !trademe?.consumerSecret) throw new Error("Save Trade Me app credentials first.");
-    const callback = `${url.origin}/api/connections/trademe/callback`;
-    const endpoint = `${tradeMeBase(trademe.environment)}/Oauth/RequestToken?scope=MyTradeMeRead`;
-    const tokenResponse = await fetch(endpoint, { method: "POST", headers: { Authorization: tradeMeAuth(trademe, { callback }) } });
-    const tokenText = await tokenResponse.text();
-    const tokenData = new URLSearchParams(tokenText);
-    const requestToken = tokenData.get("oauth_token");
-    const requestTokenSecret = tokenData.get("oauth_token_secret");
-    if (!tokenResponse.ok || !requestToken || !requestTokenSecret) throw new Error(tokenData.get("oauth_problem") || `Trade Me authorization could not start (${tokenResponse.status}).`);
-    await writeConnections({ ...config, trademe: { ...trademe, pendingToken: requestToken, pendingTokenSecret: requestTokenSecret } });
-    const website = trademe.environment === "sandbox" ? "https://www.tmsandbox.co.nz" : "https://www.trademe.co.nz";
-    json(response, 200, { authorizeUrl: `${website}/Oauth/Authorize?oauth_token=${encodeURIComponent(requestToken)}` });
-    return true;
-  }
-
-  if (request.method === "GET" && url.pathname === "/api/connections/trademe/callback") {
-    const trademe = config.trademe;
-    const token = url.searchParams.get("oauth_token");
-    const verifier = url.searchParams.get("oauth_verifier");
-    if (!trademe?.pendingToken || token !== trademe.pendingToken || !verifier) throw new Error("Trade Me returned an invalid or expired authorization response.");
-    const endpoint = `${tradeMeBase(trademe.environment)}/Oauth/AccessToken`;
-    const tokenResponse = await fetch(endpoint, {
-      method: "POST",
-      headers: { Authorization: tradeMeAuth(trademe, { token, tokenSecret: trademe.pendingTokenSecret, verifier }) },
-    });
-    const tokenText = await tokenResponse.text();
-    const tokenData = new URLSearchParams(tokenText);
-    const oauthToken = tokenData.get("oauth_token");
-    const oauthTokenSecret = tokenData.get("oauth_token_secret");
-    if (!tokenResponse.ok || !oauthToken || !oauthTokenSecret) throw new Error(tokenData.get("oauth_problem") || `Trade Me authorization failed (${tokenResponse.status}).`);
-    const nextTradeMe = { ...trademe, oauthToken, oauthTokenSecret };
-    delete nextTradeMe.pendingToken;
-    delete nextTradeMe.pendingTokenSecret;
-    await writeConnections({ ...config, trademe: nextTradeMe });
-    redirect(response, "/#settings-connected");
-    return true;
-  }
-
-  if (request.method === "DELETE" && url.pathname === "/api/connections/trademe/token") {
-    const trademe = { ...(config.trademe ?? {}) };
-    delete trademe.oauthToken;
-    delete trademe.oauthTokenSecret;
-    delete trademe.pendingToken;
-    delete trademe.pendingTokenSecret;
-    await writeConnections({ ...config, trademe });
-    json(response, 200, { message: "Local Trade Me member token removed." });
-    return true;
-  }
-
-  if (request.method === "DELETE" && url.pathname === "/api/connections/ebay") {
-    const next = { ...config };
-    delete next.ebay;
-    ebayTokenCache = null;
-    await writeConnections(next);
-    json(response, 200, { message: "Saved eBay app credentials removed." });
-    return true;
-  }
-
-  if (request.method === "DELETE" && url.pathname === "/api/connections/trademe") {
-    const next = { ...config };
-    delete next.trademe;
-    await writeConnections(next);
-    json(response, 200, { message: "Saved Trade Me app credentials and member token removed." });
-    return true;
-  }
-
-  if (request.method === "GET" && url.pathname === "/api/markets/search") {
-    const source = url.searchParams.get("source");
-    const query = (url.searchParams.get("q") || "").trim().slice(0, 200);
-    if (query.length < 2) throw new Error("Enter at least two characters to search.");
-    const result = source === "trademe" ? await searchTradeMe(query, config.trademe) : source === "ebay" ? await searchEbay(query, config.ebay) : null;
-    if (!result) throw new Error("Unknown marketplace source.");
-    json(response, 200, result);
     return true;
   }
 

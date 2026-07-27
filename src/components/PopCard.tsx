@@ -13,7 +13,11 @@ interface PopCardProps {
 }
 
 export function PopCard({ item, currency, useProxy, onEdit, onToggleFavorite, compact = false }: PopCardProps) {
-  const value = item.status === "sale" ? item.askingPrice ?? item.estimatedValue : item.estimatedValue;
+  const recordedValue = item.status === "sale" ? item.askingPrice ?? item.estimatedValue : item.estimatedValue;
+  const referenceValue = item.condition === "Out of box" ? item.referencePrices?.outOfBox : item.condition === "Box damaged" ? item.referencePrices?.damagedBox : item.referencePrices?.newInBox;
+  const value = recordedValue ?? referenceValue ?? null;
+  const valueCurrency = recordedValue !== null ? currency : item.referencePrices?.currency ?? currency;
+  const valueLabel = item.status === "sale" && item.askingPrice !== null ? "ASKING" : item.estimatedValue !== null ? "EST. VALUE" : referenceValue !== null && referenceValue !== undefined ? item.condition === "Out of box" ? "OUT-OF-BOX REF." : item.condition === "Box damaged" ? "DAMAGED-BOX REF." : "NEW / SEALED REF." : "EST. VALUE";
   return (
     <article className={`pop-card ${compact ? "compact" : ""}`}>
       <button className="pop-card-image" onClick={() => onEdit(item)} aria-label={`Open ${item.name}`}>
@@ -45,8 +49,8 @@ export function PopCard({ item, currency, useProxy, onEdit, onToggleFavorite, co
         </div>
         <div className="pop-card-footer">
           <div>
-            <small>{item.status === "sale" && item.askingPrice !== null ? "ASKING" : "EST. VALUE"}</small>
-            <strong className={value === null ? "muted-value" : ""}>{formatMoney(value, currency)}</strong>
+            <small>{valueLabel}</small>
+            <strong className={value === null ? "muted-value" : ""}>{formatMoney(value, valueCurrency)}</strong>
           </div>
           <button className="edit-button" onClick={() => onEdit(item)}><Edit3 size={16} /> Edit</button>
         </div>

@@ -14,4 +14,4 @@ identification or live market data.
 
 Product names and trademarks belong to their respective owners. This is an
 unofficial personal collection tracker and is not affiliated with Funko,
-Marvel, hobbyDB, PriceCharting, or eBay.
+Marvel, hobbyDB, PriceCharting, Trade Me, or eBay.

@@ -5,6 +5,7 @@ import { useTracker } from "./store";
 import { Backup } from "./pages/Backup";
 import { Dashboard } from "./pages/Dashboard";
 import { Gaps } from "./pages/Gaps";
+import { Finder } from "./pages/Finder";
 import { Library } from "./pages/Library";
 import { Settings } from "./pages/Settings";
 import type { ItemStatus, PageId, PopItem } from "./types";
@@ -16,9 +17,13 @@ interface ModalState {
 
 export default function App() {
   const { state, addItem, updateItem, deleteItem } = useTracker();
-  const [page, setPage] = useState<PageId>(() => window.location.hash.includes("settings") ? "settings" : "dashboard");
+  const [page, setPage] = useState<PageId>(() => {
+    const requested = window.location.hash.replace(/^#/, "") as PageId;
+    return ["dashboard", "collection", "wishlist", "sale", "gaps", "finder", "backup", "settings"].includes(requested) ? requested : "dashboard";
+  });
   const [modal, setModal] = useState<ModalState | null>(null);
   const [toast, setToast] = useState("");
+  const [finderSeed, setFinderSeed] = useState<Partial<PopItem> | null>(null);
 
   const counts = useMemo(() => ({
     collection: state.items.filter((item) => item.status === "owned").length,
@@ -54,7 +59,8 @@ export default function App() {
   else if (page === "collection") content = <Library status="owned" onAdd={() => openNew("owned")} onEdit={openEdit} />;
   else if (page === "wishlist") content = <Library status="wishlist" onAdd={() => openNew("wishlist")} onEdit={openEdit} />;
   else if (page === "sale") content = <Library status="sale" onAdd={() => openNew("sale")} onEdit={openEdit} />;
-  else if (page === "gaps") content = <Gaps onNotify={notify} onViewWishlist={() => setPage("wishlist")} />;
+  else if (page === "gaps") content = <Gaps onNotify={notify} onViewWishlist={() => setPage("wishlist")} onFind={(seed) => { setFinderSeed(seed); setPage("finder"); }} />;
+  else if (page === "finder") content = <Finder initialSeed={finderSeed} onSeedUsed={() => setFinderSeed(null)} />;
   else if (page === "backup") content = <Backup />;
   else content = <Settings />;
 
@@ -70,7 +76,6 @@ export default function App() {
           onClose={() => setModal(null)}
           onSave={save}
           onDelete={remove}
-          onOpenSettings={() => { setModal(null); setPage("settings"); }}
         />
       )}
       {toast && <div className="toast" role="status">{toast}</div>}

@@ -14,6 +14,9 @@ for (const [index, item] of seed.items.entries()) {
   if (!validStatuses.has(item.status)) errors.push(`Row ${index + 1} has invalid status ${item.status}.`);
   if (!validCategories.has(item.category)) errors.push(`Row ${index + 1} has invalid category ${item.category}.`);
   if (typeof item.sku !== "string" || typeof item.upc !== "string") errors.push(`Row ${index + 1} has invalid SKU or UPC fields.`);
+  if (typeof item.description !== "string" || typeof item.releaseDate !== "string") errors.push(`Row ${index + 1} has invalid enrichment fields.`);
+  if (!Array.isArray(item.infoSources)) errors.push(`Row ${index + 1} has invalid information sources.`);
+  if (typeof item.infoCheckedAt !== "string") errors.push(`Row ${index + 1} has an invalid information-check timestamp.`);
   if (item.upc && !/^\d{8,14}$/.test(item.upc)) errors.push(`Row ${index + 1} has an invalid UPC/EAN barcode.`);
   if (!Number.isInteger(item.quantity) || item.quantity < 1) errors.push(`Row ${index + 1} has invalid quantity.`);
   if (item.catalogMatch && !item.catalogMatch.imageUrl) errors.push(`Row ${index + 1} has an image match without a URL.`);

@@ -31,7 +31,7 @@ export function Library({ status, onAdd, onEdit }: { status: ItemStatus; onAdd: 
       .filter((item) => category === "All" || item.category === category)
       .filter((item) => series === "All" || item.series === series)
       .filter((item) => !onlyFavorites || item.favorite)
-      .filter((item) => !needle || normalizeText(`${item.name} ${item.number} ${item.series} ${item.sku} ${item.upc} ${item.comments}`).includes(needle))
+      .filter((item) => !needle || normalizeText(`${item.name} ${item.number} ${item.series} ${item.sku} ${item.upc} ${item.description} ${item.comments}`).includes(needle))
       .sort((a, b) => {
         if (sort === "name") return a.name.localeCompare(b.name);
         if (sort === "series") return a.series.localeCompare(b.series) || a.name.localeCompare(b.name);

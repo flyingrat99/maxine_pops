@@ -1,8 +1,8 @@
 import { AlertTriangle, ExternalLink, Heart, Save, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { conditionOptions, createLocalId, extractFunkoItemNumber, marketLinks, parsePrice, statusLabels } from "../lib";
+import { conditionOptions, createLocalId, extractFunkoItemNumber, mergeProductInfo, parsePrice, statusLabels } from "../lib";
 import type { Category, Condition, ItemStatus, PopItem } from "../types";
-import { MarketSearch } from "./MarketSearch";
+import { InfoFinder } from "./InfoFinder";
 import { PopImage } from "./PopImage";
 
 function blankItem(status: ItemStatus): PopItem {
@@ -20,6 +20,11 @@ function blankItem(status: ItemStatus): PopItem {
     hobbyDb: "",
     sku: "",
     upc: "",
+    description: "",
+    releaseDate: "",
+    referencePrices: null,
+    infoSources: [],
+    infoCheckedAt: "",
     favorite: false,
     location: "",
     purchasePrice: null,
@@ -41,14 +46,21 @@ interface ItemModalProps {
   onClose: () => void;
   onSave: (item: PopItem, isNew: boolean) => void;
   onDelete: (item: PopItem) => void;
-  onOpenSettings: () => void;
 }
 
-export function ItemModal({ item, initialStatus, currency, useProxy, onClose, onSave, onDelete, onOpenSettings }: ItemModalProps) {
+export function ItemModal({ item, initialStatus, currency, useProxy, onClose, onSave, onDelete }: ItemModalProps) {
   const isNew = item === null;
-  const [draft, setDraft] = useState<PopItem>(() => item ? { ...structuredClone(item), sku: item.sku ?? "", upc: item.upc ?? "" } : blankItem(initialStatus));
+  const [draft, setDraft] = useState<PopItem>(() => item ? {
+    ...structuredClone(item),
+    sku: item.sku ?? "",
+    upc: item.upc ?? "",
+    description: item.description ?? "",
+    releaseDate: item.releaseDate ?? "",
+    referencePrices: item.referencePrices ?? null,
+    infoSources: item.infoSources ?? [],
+    infoCheckedAt: item.infoCheckedAt ?? "",
+  } : blankItem(initialStatus));
   const [deleteArmed, setDeleteArmed] = useState(false);
-  const links = useMemo(() => marketLinks(draft), [draft]);
   const funkoItemNumber = useMemo(() => extractFunkoItemNumber(draft.sku) || extractFunkoItemNumber(draft.upc), [draft.sku, draft.upc]);
 
   useEffect(() => {
@@ -75,6 +87,8 @@ export function ItemModal({ item, initialStatus, currency, useProxy, onClose, on
       comments: String(data.get("comments") || "").trim(),
       sku: String(data.get("sku") || "").trim().toUpperCase(),
       upc: String(data.get("upc") || "").replace(/\D/g, ""),
+      description: String(data.get("description") || "").trim(),
+      releaseDate: String(data.get("releaseDate") || "").trim(),
       customImageUrl: String(data.get("customImageUrl") || "").trim(),
       purchasePrice: parsePrice(data.get("purchasePrice")),
       estimatedValue: nextValue,
@@ -84,10 +98,6 @@ export function ItemModal({ item, initialStatus, currency, useProxy, onClose, on
       targetSeller: String(data.get("targetSeller") || "").trim(),
       targetPriceNote: String(data.get("targetPriceNote") || "").trim(),
     }, isNew);
-  };
-
-  const useEstimate = (value: number, source: string) => {
-    setDraft((current) => ({ ...current, estimatedValue: value, valuationSource: source, valuedAt: new Date().toISOString().slice(0, 10) }));
   };
 
   return (
@@ -135,6 +145,8 @@ export function ItemModal({ item, initialStatus, currency, useProxy, onClose, on
                   <span>Suggested match: <strong>{draft.catalogMatch.title}</strong> ({Math.round(draft.catalogMatch.confidence * 100)}%). Verify variants and stickers.</span>
                 </div>
               )}
+              <label><span>Description</span><textarea name="description" rows={3} value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="Character, pose, edition and official product details…" /></label>
+              <label><span>Release date</span><input name="releaseDate" value={draft.releaseDate} onChange={(event) => setDraft((current) => ({ ...current, releaseDate: event.target.value }))} placeholder="e.g. January 1, 2011" /></label>
               <label><span>Notes</span><textarea name="comments" rows={3} defaultValue={draft.comments} placeholder="Sticker, box marks, protector, purchase story…" /></label>
 
               <div className="form-section-title"><span>Value & trade</span><small>Amounts are recorded in {currency}; no automatic currency conversion.</small></div>
@@ -144,6 +156,13 @@ export function ItemModal({ item, initialStatus, currency, useProxy, onClose, on
                 <label><span>Asking ({currency})</span><input name="askingPrice" type="number" min="0" step="0.01" defaultValue={draft.askingPrice ?? ""} /></label>
               </div>
               <label><span>Valuation source</span><input name="valuationSource" value={draft.valuationSource} onChange={(event) => setDraft((current) => ({ ...current, valuationSource: event.target.value }))} placeholder="e.g. Trade Me sold comp, PPG, personal estimate" /></label>
+              {draft.referencePrices && (
+                <div className="saved-reference-note">
+                  <strong>Saved reference prices ({draft.referencePrices.currency})</strong>
+                  <span>Out of box {draft.referencePrices.outOfBox ?? "—"} · damaged box {draft.referencePrices.damagedBox ?? "—"} · new {draft.referencePrices.newInBox ?? "—"}</span>
+                  <a href={draft.referencePrices.sourceUrl} target="_blank" rel="noreferrer">Open {draft.referencePrices.source} <ExternalLink size={12} /></a>
+                </div>
+              )}
               {draft.status === "wishlist" && (
                 <div className="field-grid two">
                   <label><span>Seller spotted</span><input name="targetSeller" defaultValue={draft.targetSeller} /></label>
@@ -153,13 +172,7 @@ export function ItemModal({ item, initialStatus, currency, useProxy, onClose, on
             </div>
           </form>
           <aside className="modal-market-column">
-            <MarketSearch item={draft} appCurrency={currency} onUseEstimate={useEstimate} onUseImage={(imageUrl) => setDraft((current) => ({ ...current, customImageUrl: imageUrl }))} onOpenSettings={onOpenSettings} />
-            <div className="market-link-card">
-              <span className="eyebrow">QUICK LINKS</span>
-              <a href={links.tradeMe} target="_blank" rel="noreferrer">Search Trade Me <ExternalLink size={14} /></a>
-              <a href={links.ebay} target="_blank" rel="noreferrer">Search eBay sold <ExternalLink size={14} /></a>
-              <a href={links.priceCharting} target="_blank" rel="noreferrer">Search PriceCharting <ExternalLink size={14} /></a>
-            </div>
+            <InfoFinder item={draft} onApply={(result) => setDraft((current) => mergeProductInfo(current, result, true))} />
           </aside>
         </div>
         <footer className="modal-footer">

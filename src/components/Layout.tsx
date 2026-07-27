@@ -5,6 +5,7 @@ import {
   Heart,
   Menu,
   SearchCheck,
+  Sparkles,
   Settings,
   Store,
   X,
@@ -18,6 +19,7 @@ const navItems: { id: PageId; label: string; icon: typeof BarChart3 }[] = [
   { id: "wishlist", label: "Wishlist", icon: Heart },
   { id: "sale", label: "For sale", icon: Store },
   { id: "gaps", label: "Gap finder", icon: SearchCheck },
+  { id: "finder", label: "Pop info finder", icon: Sparkles },
   { id: "backup", label: "Data & backup", icon: Archive },
   { id: "settings", label: "Settings", icon: Settings },
 ];

@@ -56,10 +56,17 @@ port, or run `node server.mjs --host 0.0.0.0` to make it reachable on the LAN.
   quantity, and custom image editing.
 - Per-Pop cost, estimated value, asking price, valuation source, and date.
 - Per-Pop SKU/Funko item ID and UPC/EAN barcode fields, included in search,
-  marketplace research links, JSON backups, and CSV exports.
+  information searches, JSON backups, and CSV exports.
+- A shared Pop Info Finder for collection, wishlist, for-sale, Gap Finder, and
+  not-yet-saved Pops.
+- Tiered, on-demand enrichment: exact identifiers are tried first, discovered
+  identifiers strengthen follow-up searches, and matches retain source links.
+- PriceCharting reference values for out-of-box, damaged-box, and new/sealed
+  condition, kept in their source currency and separate from manual NZD values.
+- A resumable whole-library enrichment pass that saves after every Pop and
+  skips records checked within the last 30 days.
 - Collection-level recorded value, cost, paper gain/loss, and valuation coverage.
-- Trade Me, eBay sold, and PriceCharting research links on every record.
-- Optional connected active-listing searches for eBay and Trade Me.
+- Trade Me, eBay sold, Funko, and PriceCharting research links without API keys.
 - Number-run gap finder and an unowned-candidate catalog explorer.
 - Full JSON backup/restore and CSV export.
 - Browser-local persistence: no database or hosted account is required.
@@ -68,30 +75,22 @@ The app intentionally ignores `Movie order for shelves`, `Sheet5`, and the
 archival/working sheets. The original Soda sheet is also outside the two
 requested collection categories.
 
-## Valuation and marketplace connections
+## Pop information and valuation
 
 The app starts with no invented values. Open a Pop, check comparable listings,
 and record an estimate with its source. Collection totals include only records
 that have an amount entered.
 
-- **PriceCharting:** public search links work immediately. PriceCharting added
-  Funko tracking in 2024, including boxed/out-of-box prices and sales history,
-  but direct API access is paid. The tracker does not scrape its price data.
-- **eBay:** public sold-search links work immediately. Optional production App
-  ID / Cert ID credentials enable the official Browse API for current listings.
-  Those are asking prices, not verified sale prices. eBay's sold-history API is
-  limited release.
-- **Trade Me:** public search links work immediately. An approved app's Consumer
-  Key / Secret enables official NZD listing search. Trade Me member connection
-  uses their OAuth 1.0a redirect flow and never asks for a Trade Me password.
-  Since 10 April 2026, new Marketplace API app registration is restricted to
-  in-trade sellers; existing approved apps may still be configured.
-
-Credentials entered under **Settings & connections** are handled by the local
-Node server and stored in `data/local-connections.json`. That plaintext local
-file is excluded from Git, and saved secrets are never returned to browser code.
-Protect the Windows account/app folder and back up credentials separately;
-tracker JSON backups intentionally do not include them.
+- **PriceCharting:** the finder reads a public product page only after a manual
+  or batch lookup. Exact matches can supply title, box number, UPC, release date,
+  image, and three reference prices. Requests are sequential and cached locally
+  for six hours; there is no background crawler.
+- **Funko:** a SKU/Funko item ID, or a modern barcode beginning `889698`, enables
+  an exact official product search. This can corroborate the title, item ID,
+  image, and official page.
+- **eBay and Trade Me:** the finder creates public, identifier-aware searches.
+  Open them to compare sticker, variant, condition, postage, and recent sold or
+  local asking prices. No account login or developer credentials are used.
 
 Changing the display currency relabels amounts but does not convert them. Check
 the currency of any comparable listing before recording its value.
@@ -105,9 +104,8 @@ are visibly marked and can be replaced with a custom image URL.
 
 The item editor also accepts a supported Funko, PriceCharting, or retailer
 product-page URL and uses its advertised preview image when the site permits
-metadata access. When a connected Trade Me or eBay search returns a suitable
-listing, use **Use image** to copy that listing image into the record. Always
-verify the figure, box number, sticker, and variant before saving it.
+metadata access. Always verify the figure, box number, sticker, and variant
+before applying a match.
 
 Some old hobbyDB image links reject direct hotlinking. The optional image helper
 uses the open-source [wsrv.nl image service](https://wsrv.nl/) to display those
@@ -124,8 +122,9 @@ npm install
 npm run dev
 ```
 
-The Vite development server serves the UI. Marketplace API routes are provided
-by the production Node server, so use this when testing the complete app:
+The Vite development server serves the UI. Public information lookup and image
+preview routes are provided by the production Node server, so use this when
+testing the complete app:
 
 ```bash
 npm run build

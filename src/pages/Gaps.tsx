@@ -61,6 +61,11 @@ function wishlistItem(name: string, number: string, series: string, catalog: Cat
     hobbyDb: "",
     sku: "",
     upc: "",
+    description: "",
+    releaseDate: "",
+    referencePrices: null,
+    infoSources: [],
+    infoCheckedAt: "",
     favorite: false,
     location: "",
     purchasePrice: null,
@@ -85,9 +90,10 @@ function CatalogImage({ entry, imageUrl }: { entry: CatalogEntry; imageUrl: stri
 interface GapsProps {
   onNotify: (message: string) => void;
   onViewWishlist: () => void;
+  onFind: (seed: Partial<PopItem>) => void;
 }
 
-export function Gaps({ onNotify, onViewWishlist }: GapsProps) {
+export function Gaps({ onNotify, onViewWishlist, onFind }: GapsProps) {
   const { state, addItem } = useTracker();
   const owned = useMemo(() => state.items.filter((item) => item.status === "owned"), [state.items]);
   const wishlist = useMemo(() => state.items.filter((item) => item.status === "wishlist"), [state.items]);
@@ -192,15 +198,14 @@ export function Gaps({ onNotify, onViewWishlist }: GapsProps) {
                     const key = `gap-${selectedSeries}-${number}`;
                     const wished = wishlist.some((item) => item.number === String(number) && (item.series === selectedSeries || item.series.includes("wishlist")));
                     const isAdded = added.has(key);
-                    const officialSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(`site:funko.com "Box Number: ${number}"`)}`;
                     const popcultchaSearchUrl = `https://www.popcultcha.com.au/catalogsearch/result/?q=${encodeURIComponent(`Funko Pop ${selectedSeries} ${number}`)}`;
                     return (
                       <article key={number} className={`gap-number-card ${wished || isAdded ? "wished" : ""}`}>
-                        <a href={officialSearchUrl} target="_blank" rel="noreferrer" className="gap-image-lookup" title={`Search official Funko pages for ${selectedSeries} box #${number}`}>
+                        <button type="button" className="gap-image-lookup" title={`Find product information for ${selectedSeries} box #${number}`} onClick={() => onFind({ name: "", number: String(number), series: selectedSeries, category: "Marvel" })}>
                           <SearchCheck size={19} />
                           <strong>#{number}</strong>
-                          <span>Verify at Funko</span>
-                        </a>
+                          <span>Find Pop info</span>
+                        </button>
                         <a href={popcultchaSearchUrl} target="_blank" rel="noreferrer" className="gap-retailer-link" title={`Search Popcultcha for ${selectedSeries} box #${number}`}><ExternalLink size={10} /> Popcultcha</a>
                         <button disabled={wished || isAdded} onClick={() => addGap(number)}>{wished || isAdded ? <><Heart size={12} fill="currentColor" /> Listed</> : <><Plus size={12} /> Wishlist</>}</button>
                       </article>
@@ -231,7 +236,15 @@ export function Gaps({ onNotify, onViewWishlist }: GapsProps) {
                 <article key={key} className="catalog-card">
                   <div className="catalog-image"><CatalogImage entry={entry} imageUrl={imageUrl} /></div>
                   <div><h3>{entry.title}</h3><p>{entry.series.filter((value) => value !== "Pop! Vinyl").slice(0, 2).join(" · ") || "Pop! Vinyl"}</p></div>
-                  <button disabled={alreadyWished || isAdded} onClick={() => addCatalog(entry)}>{isAdded ? <><Check size={14} /> Added to wishlist</> : alreadyWished ? <><Check size={14} /> On wishlist</> : <><Plus size={14} /> Add to wishlist</>}</button>
+                  <div className="catalog-actions">
+                    <button onClick={() => onFind({
+                      name: entry.title,
+                      series: entry.series.find((value) => !value.startsWith("Pop! ")) || entry.series.at(-1) || "Unsorted",
+                      category: entry.series.includes("Pop! Marvel") ? "Marvel" : "Others",
+                      catalogMatch: { title: entry.title, imageUrl: entry.imageUrl, series: entry.series, confidence: 1 },
+                    })}><SearchCheck size={14} /> Find info</button>
+                    <button disabled={alreadyWished || isAdded} onClick={() => addCatalog(entry)}>{isAdded ? <><Check size={14} /> Added</> : alreadyWished ? <><Check size={14} /> Listed</> : <><Plus size={14} /> Wishlist</>}</button>
+                  </div>
                 </article>
               );
             })}

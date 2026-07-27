@@ -1,4 +1,4 @@
-import type { PopItem } from "./types";
+import type { PopItem, ProductInfoResponse } from "./types";
 
 export const statusLabels = {
   owned: "Collection",
@@ -100,21 +100,42 @@ export function makeCsv(items: PopItem[], currency: string): string {
   const headers = [
     "Status", "Category", "Name", "Number", "Series", "SKU / item ID", "UPC / EAN", "Quantity", "Condition", "Location",
     `Purchase price (${currency})`, `Estimated value (${currency})`, `Asking price (${currency})`,
-    "Valuation source", "Valued at", "Favourite", "Comments", "Source sheet",
+    "Valuation source", "Valued at", "Reference currency", "Out-of-box price", "Damaged-box price", "New-in-box price",
+    "Release date", "Description", "Information sources", "Favourite", "Comments", "Source sheet",
   ];
   const rows = items.map((item) => [
     item.status, item.category, item.name, item.number, item.series, item.sku, item.upc, item.quantity, item.condition,
     item.location, item.purchasePrice, item.estimatedValue, item.askingPrice, item.valuationSource,
-    item.valuedAt, item.favorite ? "yes" : "no", item.comments, item.sourceRef,
+    item.valuedAt, item.referencePrices?.currency, item.referencePrices?.outOfBox, item.referencePrices?.damagedBox,
+    item.referencePrices?.newInBox, item.releaseDate, item.description,
+    item.infoSources.map((source) => `${source.name}: ${source.url}`).join(" | "),
+    item.favorite ? "yes" : "no", item.comments, item.sourceRef,
   ]);
   return [headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
 }
 
-export function median(values: number[]): number | null {
-  const sorted = values.filter((value) => Number.isFinite(value) && value > 0).sort((a, b) => a - b);
-  if (!sorted.length) return null;
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+export function mergeProductInfo(item: PopItem, result: ProductInfoResponse, replaceIdentity = false): PopItem {
+  const suggestion = result.suggestion;
+  if (!suggestion) return { ...item, infoCheckedAt: result.checkedAt };
+  if (!replaceIdentity && suggestion.confidence < 0.9) return { ...item, infoCheckedAt: result.checkedAt };
+  const currentSeriesIsPlaceholder = !item.series || ["unsorted", "wishlist", "marvel wishlist"].includes(item.series.toLowerCase());
+  const sources = [...suggestion.infoSources, ...item.infoSources].filter((source, index, all) =>
+    all.findIndex((candidate) => candidate.url === source.url) === index
+  );
+  return {
+    ...item,
+    name: replaceIdentity && suggestion.name ? suggestion.name : item.name || suggestion.name,
+    number: replaceIdentity && suggestion.number ? suggestion.number : item.number || suggestion.number,
+    series: (replaceIdentity && currentSeriesIsPlaceholder && suggestion.series) || item.series || suggestion.series,
+    sku: suggestion.sku || item.sku,
+    upc: suggestion.upc || item.upc,
+    description: suggestion.description || item.description,
+    releaseDate: suggestion.releaseDate || item.releaseDate,
+    customImageUrl: item.customImageUrl || suggestion.imageUrl,
+    referencePrices: suggestion.referencePrices || item.referencePrices,
+    infoSources: sources,
+    infoCheckedAt: result.checkedAt,
+  };
 }
 
 export function parsePrice(value: FormDataEntryValue | null): number | null {

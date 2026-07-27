@@ -9,6 +9,22 @@ export interface CatalogMatch {
   confidence: number;
 }
 
+export interface ReferencePrices {
+  currency: string;
+  outOfBox: number | null;
+  damagedBox: number | null;
+  newInBox: number | null;
+  source: string;
+  sourceUrl: string;
+  checkedAt: string;
+}
+
+export interface InfoSource {
+  name: string;
+  url: string;
+  checkedAt: string;
+}
+
 export interface PopItem {
   id: string;
   name: string;
@@ -23,6 +39,11 @@ export interface PopItem {
   hobbyDb: string;
   sku: string;
   upc: string;
+  description: string;
+  releaseDate: string;
+  referencePrices: ReferencePrices | null;
+  infoSources: InfoSource[];
+  infoCheckedAt: string;
   favorite: boolean;
   location: string;
   purchasePrice: number | null;
@@ -70,36 +91,36 @@ export interface TrackerState {
   lastSavedAt: string;
 }
 
-export interface ConnectionStatus {
-  ebay: {
-    configured: boolean;
-    marketplace: string;
-    label: string;
-  };
-  trademe: {
-    configured: boolean;
-    connected: boolean;
-    environment: "production" | "sandbox";
-    label: string;
-  };
-}
-
-export interface MarketListing {
-  id: string;
-  title: string;
-  price: number;
-  currency: string;
+export interface ProductInfoSuggestion {
+  name: string;
+  number: string;
+  series: string;
+  sku: string;
+  upc: string;
+  description: string;
+  releaseDate: string;
   imageUrl: string;
+  referencePrices: ReferencePrices | null;
+  infoSources: InfoSource[];
+  confidence: number;
+}
+
+export interface ProductInfoStage {
+  source: string;
+  status: "matched" | "searched" | "unavailable";
+  message: string;
   url: string;
-  condition: string;
-  buyingOption: string;
 }
 
-export interface MarketSearchResponse {
-  source: "ebay" | "trademe";
-  query: string;
-  total: number;
-  listings: MarketListing[];
+export interface ProductInfoResponse {
+  suggestion: ProductInfoSuggestion | null;
+  stages: ProductInfoStage[];
+  checkedAt: string;
+  links: {
+    priceCharting: string;
+    ebay: string;
+    tradeMe: string;
+  };
 }
 
-export type PageId = "dashboard" | "collection" | "wishlist" | "sale" | "gaps" | "backup" | "settings";
+export type PageId = "dashboard" | "collection" | "wishlist" | "sale" | "gaps" | "finder" | "backup" | "settings";

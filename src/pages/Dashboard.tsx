@@ -29,7 +29,19 @@ export function Dashboard({ onNavigate, onAdd, onEdit }: { onNavigate: (page: Pa
       duplicateKeys.set(key, (duplicateKeys.get(key) ?? 0) + item.quantity);
     });
     const duplicates = [...duplicateKeys.values()].filter((count) => count > 1).reduce((sum, count) => sum + count - 1, 0);
-    return { owned, wishlist, sale, units, value, cost, asking, valued, marvel, others, topSeries, duplicates };
+    const referenceMap = new Map<string, { currency: string; records: number; outOfBox: number; damagedBox: number; newInBox: number }>();
+    owned.forEach((item) => {
+      const prices = item.referencePrices;
+      if (!prices) return;
+      const current = referenceMap.get(prices.currency) ?? { currency: prices.currency, records: 0, outOfBox: 0, damagedBox: 0, newInBox: 0 };
+      current.records += 1;
+      current.outOfBox += (prices.outOfBox ?? 0) * item.quantity;
+      current.damagedBox += (prices.damagedBox ?? 0) * item.quantity;
+      current.newInBox += (prices.newInBox ?? 0) * item.quantity;
+      referenceMap.set(prices.currency, current);
+    });
+    const referenceTotals = [...referenceMap.values()].sort((a, b) => b.records - a.records);
+    return { owned, wishlist, sale, units, value, cost, asking, valued, marvel, others, topSeries, duplicates, referenceTotals };
   }, [items]);
 
   const spotlight = stats.owned.filter((item) => item.favorite).slice(0, 4);
@@ -44,6 +56,7 @@ export function Dashboard({ onNavigate, onAdd, onEdit }: { onNavigate: (page: Pa
           <p>Track the shelf, hunt the gaps, price the gems, and find the next Pop worth chasing.</p>
           <div className="hero-actions">
             <button className="button light" onClick={() => onNavigate("collection")}>Explore collection <ArrowRight size={17} /></button>
+            <button className="button hero-outline" onClick={() => onNavigate("finder")}><Sparkles size={17} /> Find Pop info</button>
             <button className="button hero-outline" onClick={() => onAdd("owned")}><Plus size={17} /> Add a Pop</button>
           </div>
         </div>
@@ -99,8 +112,16 @@ export function Dashboard({ onNavigate, onAdd, onEdit }: { onNavigate: (page: Pa
           <div className="value-row"><span>Recorded value</span><strong>{formatMoney(stats.value, settings.currency)}</strong></div>
           <div className="value-row"><span>Recorded cost</span><strong>{formatMoney(stats.cost, settings.currency)}</strong></div>
           <div className="value-row accent"><span>Paper gain / loss</span><strong>{formatMoney(stats.value - stats.cost, settings.currency)}</strong></div>
+          {stats.referenceTotals.map((reference) => (
+            <div className="collection-reference" key={reference.currency}>
+              <small>PRICE GUIDE · {reference.records} RECORDS · {reference.currency}</small>
+              <span><em>Out of box</em><strong>{formatMoney(reference.outOfBox, reference.currency)}</strong></span>
+              <span><em>Damaged box</em><strong>{formatMoney(reference.damagedBox, reference.currency)}</strong></span>
+              <span><em>New / sealed</em><strong>{formatMoney(reference.newInBox, reference.currency)}</strong></span>
+            </div>
+          ))}
           <p className="fine-print">Totals only include Pops with amounts entered. Estimated value is not a guaranteed sale price.</p>
-          <button className="button secondary full" onClick={() => onNavigate("collection")}>Price the collection</button>
+          <button className="button secondary full" onClick={() => onNavigate("finder")}>Enrich the whole library</button>
         </article>
       </section>
 

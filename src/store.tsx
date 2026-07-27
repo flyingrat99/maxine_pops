@@ -10,12 +10,17 @@ function normalizeItem(item: PopItem): PopItem {
     ...item,
     sku: String(item.sku ?? ""),
     upc: String(item.upc ?? "").replace(/\D/g, ""),
+    description: String(item.description ?? ""),
+    releaseDate: String(item.releaseDate ?? ""),
+    referencePrices: item.referencePrices ?? null,
+    infoSources: Array.isArray(item.infoSources) ? item.infoSources : [],
+    infoCheckedAt: String(item.infoCheckedAt ?? ""),
   };
 }
 
 function freshState(): TrackerState {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     items: structuredClone(seed.items).map(normalizeItem),
     settings: { currency: "NZD", imageProxy: true },
     lastSavedAt: new Date().toISOString(),
@@ -29,7 +34,7 @@ function loadState(): TrackerState {
     const parsed = JSON.parse(saved) as Partial<TrackerState>;
     if (!Array.isArray(parsed.items)) return freshState();
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       items: parsed.items.map(normalizeItem),
       settings: {
         currency: parsed.settings?.currency ?? "NZD",
@@ -85,7 +90,7 @@ export function TrackerProvider({ children }: { children: ReactNode }) {
   const importState = useCallback((imported: TrackerState) => {
     if (!Array.isArray(imported.items)) throw new Error("This backup does not contain an items list.");
     setState({
-      schemaVersion: 2,
+      schemaVersion: 3,
       items: imported.items.map(normalizeItem),
       settings: imported.settings ?? { currency: "NZD", imageProxy: true },
       lastSavedAt: new Date().toISOString(),
