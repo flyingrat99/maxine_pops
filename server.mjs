@@ -99,6 +99,16 @@ function productImageFromHtml(html, pageUrl, expectedSku = "") {
       // Ignore malformed third-party structured data and try the next block.
     }
   }
+
+  const host = new URL(pageUrl).hostname.toLowerCase();
+  if (host === "pricecharting.com" || host.endsWith(".pricecharting.com")) {
+    const largeImage = html.match(/<div\b[^>]*id=["']js-dialog-large-image["'][^>]*>[\s\S]{0,1200}?<img\b[^>]*>/i)?.[0] || "";
+    const largeSource = tagAttribute(largeImage.match(/<img\b[^>]*>/i)?.[0] || "", "src");
+    if (largeSource) return new URL(largeSource, pageUrl).href;
+    const cover = html.match(/<div\b[^>]*class=["'][^"']*\bcover\b[^"']*["'][^>]*>[\s\S]{0,2500}?<img\b[^>]*>/i)?.[0] || "";
+    const image = tagAttribute(cover.match(/<img\b[^>]*>/i)?.[0] || "", "src");
+    if (image) return new URL(image, pageUrl).href;
+  }
   return "";
 }
 

@@ -158,7 +158,7 @@ export function Settings() {
         <section className="panel pricecharting-card">
           <div className="connection-top"><div className="market-logo price-logo">PriceCharting</div><span className="status-pill public">Public links</span></div>
           <h2>Sold-price research</h2>
-          <p>PriceCharting added Funko prices in 2024, with daily eBay-backed sales and separate boxed/out-of-box values. Search links work now; direct API access is a paid feature, so the tracker does not scrape it.</p>
+          <p>PriceCharting added Funko prices in 2024, with daily eBay-backed sales and separate boxed/out-of-box values. Search links work now; direct API access is paid, so the tracker does not import its price data. A product-page URL can still supply its public cover image.</p>
           <a className="button secondary" href="https://www.pricecharting.com/category/funko-pops" target="_blank" rel="noreferrer">Open Funko price guide <ExternalLink size={15} /></a>
         </section>
       </div>
