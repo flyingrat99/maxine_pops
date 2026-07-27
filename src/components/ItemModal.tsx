@@ -138,7 +138,7 @@ export function ItemModal({ item, initialStatus, currency, useProxy, onClose, on
                 <label><span>Condition</span><select name="condition" defaultValue={draft.condition}>{conditionOptions.map((value) => <option key={value}>{value}</option>)}</select></label>
                 <label><span>Shelf / location</span><input name="location" defaultValue={draft.location} placeholder="e.g. Cabinet A · shelf 2" /></label>
               </div>
-              <label><span>Image or product page URL</span><input name="customImageUrl" type="url" value={draft.customImageUrl} onChange={(event) => setDraft((current) => ({ ...current, customImageUrl: event.target.value }))} placeholder="Paste an image, Funko, PriceCharting, or retailer URL" /><small className="field-help">Funko and PriceCharting product pages can supply the preview image. Some protected retailer pages may require choosing an image from the market results.</small></label>
+              <label><span>Image or product page URL</span><input name="customImageUrl" type="url" value={draft.customImageUrl} onChange={(event) => setDraft((current) => ({ ...current, customImageUrl: event.target.value }))} placeholder="Paste an image, Amazon, Funko, PriceCharting, or retailer URL" /><small className="field-help">Amazon AU, Funko, and PriceCharting product pages can supply information and a preview image. Some protected retailer pages may require choosing an image from the market results.</small></label>
               {draft.catalogMatch && !draft.customImageUrl && (
                 <div className="catalog-note">
                   <AlertTriangle size={16} />

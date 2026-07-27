@@ -118,6 +118,7 @@ export interface ProductInfoResponse {
   checkedAt: string;
   links: {
     priceCharting: string;
+    amazon: string;
     ebay: string;
     tradeMe: string;
   };

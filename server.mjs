@@ -29,7 +29,7 @@ const contentTypes = {
 };
 
 const previewDomains = [
-  "ebay.co.uk", "ebay.com", "ebay.com.au", "funko.com", "hobbydb.com", "popcultcha.com.au",
+  "amazon.com.au", "ebay.co.uk", "ebay.com", "ebay.com.au", "funko.com", "hobbydb.com", "popcultcha.com.au",
   "pricecharting.com", "trademe.co.nz",
 ];
 const previewCache = new Map();
@@ -38,6 +38,11 @@ const enrichmentCache = new Map();
 function isAllowedPreviewHost(hostname) {
   const host = hostname.toLowerCase();
   return previewDomains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
+function isAmazonHost(hostname) {
+  const host = hostname.toLowerCase();
+  return host === "amazon.com.au" || host.endsWith(".amazon.com.au");
 }
 
 function decodeHtml(value) {
@@ -100,6 +105,27 @@ function productImageFromHtml(html, pageUrl, expectedSku = "") {
   }
 
   const host = new URL(pageUrl).hostname.toLowerCase();
+  if (isAmazonHost(host)) {
+    const imageTag = html.match(/<(?:img|div)\b[^>]*\bid=["']landingImage["'][^>]*>/i)?.[0] || "";
+    const hires = tagAttribute(imageTag, "data-old-hires");
+    if (hires) return new URL(hires, pageUrl).href;
+    const source = tagAttribute(imageTag, "src");
+    if (source) return new URL(source, pageUrl).href;
+    const dynamic = tagAttribute(imageTag, "data-a-dynamic-image");
+    if (dynamic) {
+      try {
+        const candidates = Object.entries(JSON.parse(dynamic));
+        candidates.sort((left, right) => {
+          const leftSize = Array.isArray(left[1]) ? Number(left[1][0]) * Number(left[1][1]) : 0;
+          const rightSize = Array.isArray(right[1]) ? Number(right[1][0]) * Number(right[1][1]) : 0;
+          return rightSize - leftSize;
+        });
+        if (candidates[0]?.[0]) return new URL(candidates[0][0], pageUrl).href;
+      } catch {
+        // Fall through to other product-page image metadata.
+      }
+    }
+  }
   if (host === "pricecharting.com" || host.endsWith(".pricecharting.com")) {
     const largeImage = html.match(/<div\b[^>]*id=["']js-dialog-large-image["'][^>]*>[\s\S]{0,1200}?<img\b[^>]*>/i)?.[0] || "";
     const largeSource = tagAttribute(largeImage.match(/<img\b[^>]*>/i)?.[0] || "", "src");
@@ -265,6 +291,74 @@ function priceChartingProduct(html, pageUrl) {
   };
 }
 
+function amazonDetail(html, ...labels) {
+  for (const label of labels) {
+    const value = plainText(html.match(new RegExp(`<th\\b[^>]*>\\s*${escapePattern(label)}\\s*<\\/th>\\s*<td\\b[^>]*>([\\s\\S]*?)<\\/td>`, "i"))?.[1] || "");
+    if (value && !/^(?:none|n\/a)$/i.test(value)) return value;
+  }
+  return "";
+}
+
+function inputValue(html, name) {
+  for (const tag of html.match(/<input\b[^>]*>/gi) || []) {
+    if (tagAttribute(tag, "name") === name || tagAttribute(tag, "id") === name) return tagAttribute(tag, "value");
+  }
+  return "";
+}
+
+function amazonProductFromHtml(html, pageUrl) {
+  const pathAsin = pageUrl.pathname.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})(?:[/?]|$)/i)?.[1]?.toUpperCase() || "";
+  const asin = (amazonDetail(html, "ASIN") || inputValue(html, "ASIN") || pathAsin).replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  const titleBlock = html.match(/<[^>]*\bid=["']productTitle["'][^>]*>([\s\S]*?)<\/[^>]+>/i)?.[1] || "";
+  const metaTitleTag = (html.match(/<meta\b[^>]*(?:name|property)=["'](?:title|og:title)["'][^>]*>/i) || [""])[0];
+  const fullTitle = plainText(titleBlock || tagAttribute(metaTitleTag, "content"));
+  if (!fullTitle || !asin) return null;
+
+  const name = fullTitle
+    .replace(/^Funko\s+PoP!\s*/i, "")
+    .replace(/\s*:\s*Amazon\.com\.au[\s\S]*$/i, "")
+    .replace(/,\s*\d+(?:\.\d+)?\s*(?:cm|centimetres?|in(?:ches)?)\s+Height[\s\S]*$/i, "")
+    .replace(/\s+Vinyl Figure[\s\S]*$/i, "")
+    .trim();
+  const upc = amazonDetail(html, "UPC", "EAN").replace(/\D/g, "");
+  const model = amazonDetail(html, "Model Number", "Item model number", "Manufacturer Part Number", "Manufacturer reference").replace(/[^A-Z0-9-]/gi, "").toUpperCase();
+  const funkoItem = extractFunkoItemNumber(upc) || extractFunkoItemNumber(model);
+  const bulletBlock = html.match(/<div\b[^>]*\bid=["']feature-bullets["'][^>]*>[\s\S]{0,30000}?<\/ul>/i)?.[0] || "";
+  const bullets = [...bulletBlock.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)].map((match) => plainText(match[1])).filter(Boolean);
+  const metaDescriptionTag = (html.match(/<meta\b[^>]*name=["']description["'][^>]*>/i) || [""])[0];
+  const description = (bullets.join(" ") || plainText(tagAttribute(metaDescriptionTag, "content"))).slice(0, 2_000);
+  const releaseDate = amazonDetail(html, "Release date", "Date First Available");
+  const currency = inputValue(html, "items[0.base][customerVisiblePrice][currencyCode]");
+  const amountText = inputValue(html, "items[0.base][customerVisiblePrice][amount]");
+  const amount = Number(amountText);
+  const hasPrice = Boolean(currency && amountText && Number.isFinite(amount) && amount >= 0);
+  const sourceUrl = `https://${pageUrl.hostname}/dp/${asin}`;
+  const checkedAt = new Date().toISOString();
+
+  return {
+    name,
+    number: "",
+    series: /\bwhat if\b/i.test(fullTitle) ? "What If...?" : "",
+    sku: funkoItem ? `FUN${funkoItem}` : model || asin,
+    upc,
+    description,
+    releaseDate,
+    imageUrl: productImageFromHtml(html, pageUrl),
+    referencePrices: hasPrice ? {
+      currency,
+      outOfBox: null,
+      damagedBox: null,
+      newInBox: amount,
+      source: "Amazon AU",
+      sourceUrl,
+      checkedAt,
+    } : null,
+    infoSources: [{ name: "Amazon AU", url: sourceUrl, checkedAt }],
+    sourceUrl,
+    asin,
+  };
+}
+
 function productObjects(value) {
   const found = [];
   const pending = [value];
@@ -318,6 +412,7 @@ function searchLinks(item) {
   const ebayQuery = ["Funko", item.name, item.upc || item.sku, item.number ? `#${item.number}` : ""].filter(Boolean).join(" ");
   return {
     priceCharting: `https://www.pricecharting.com/search-products?type=prices&q=${encodeURIComponent(priceQuery)}`,
+    amazon: `https://www.amazon.com.au/s?k=${encodeURIComponent(nameQuery)}`,
     ebay: `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(ebayQuery)}&LH_Sold=1&LH_Complete=1`,
     tradeMe: `https://www.trademe.co.nz/a/marketplace/search?search_string=${encodeURIComponent(nameQuery)}`,
   };
@@ -409,6 +504,33 @@ async function findFunko(item, stages) {
   }
 }
 
+async function findAmazon(item, stages) {
+  const links = searchLinks(item);
+  let direct = "";
+  try {
+    const url = new URL(item.customImageUrl || "");
+    if (isAmazonHost(url.hostname) && /\/(?:dp|gp\/product)\/[A-Z0-9]{10}(?:[/?]|$)/i.test(url.pathname)) direct = url.href;
+  } catch {
+    // A normal image URL is not an Amazon product page.
+  }
+  if (!direct) {
+    stages.push({ source: "Amazon AU", status: "searched", message: "Paste an exact Amazon product URL to import its image, identifiers, details, and current new price.", url: links.amazon });
+    return null;
+  }
+  try {
+    const { html, current } = await htmlPage(direct);
+    const product = amazonProductFromHtml(html, current);
+    if (!product) throw new Error("Amazon did not return readable product details for that listing.");
+    const currentPrice = product.referencePrices ? `${product.referencePrices.currency} ${product.referencePrices.newInBox.toFixed(2)} current new price` : "";
+    const found = [product.imageUrl && "image", product.upc && "UPC", product.sku && "item ID", currentPrice].filter(Boolean).join(", ");
+    stages.push({ source: "Amazon AU", status: "matched", message: `Matched ASIN ${product.asin}${found ? `; found ${found}` : ""}.`, url: product.sourceUrl });
+    return { ...product, confidence: 0.98 };
+  } catch (error) {
+    stages.push({ source: "Amazon AU", status: "unavailable", message: error instanceof Error ? error.message : "Amazon product details were unavailable.", url: direct });
+    return null;
+  }
+}
+
 async function enrichProduct(raw) {
   const item = {
     name: plainText(raw.name).slice(0, 200),
@@ -418,46 +540,56 @@ async function enrichProduct(raw) {
     upc: String(raw.upc || "").replace(/\D/g, "").slice(0, 14),
     customImageUrl: String(raw.customImageUrl || "").trim().slice(0, 2_048),
   };
-  let directPriceCharting = false;
+  let directSupportedProduct = false;
   try {
     const customUrl = new URL(item.customImageUrl);
-    directPriceCharting = /(^|\.)pricecharting\.com$/i.test(customUrl.hostname);
+    directSupportedProduct = /(^|\.)pricecharting\.com$/i.test(customUrl.hostname) || isAmazonHost(customUrl.hostname);
   } catch {
     // A normal image URL is not enough to identify a product.
   }
-  if (item.name.length < 2 && !item.sku && !item.upc && !directPriceCharting) throw new Error("Add a title, SKU, barcode, or PriceCharting product URL before finding information.");
+  if (item.name.length < 2 && !item.sku && !item.upc && !directSupportedProduct) throw new Error("Add a title, SKU, barcode, or supported product URL before finding information.");
   const cacheKey = JSON.stringify(item);
   const cached = enrichmentCache.get(cacheKey);
   if (cached?.expiresAt > Date.now()) return cached.payload;
 
   const stages = [];
-  const priceCharting = await findPriceCharting(item, stages);
-  const discovered = {
+  const amazon = await findAmazon(item, stages);
+  const amazonDiscovered = {
     ...item,
-    name: priceCharting?.name || item.name,
-    number: priceCharting?.number || item.number,
-    series: priceCharting?.series || item.series,
-    upc: priceCharting?.upc || item.upc,
+    name: amazon?.name || item.name,
+    number: amazon?.number || item.number,
+    series: amazon?.series || item.series,
+    sku: amazon?.sku || item.sku,
+    upc: amazon?.upc || item.upc,
+  };
+  const priceCharting = await findPriceCharting(amazonDiscovered, stages);
+  const discovered = {
+    ...amazonDiscovered,
+    name: priceCharting?.name || amazonDiscovered.name,
+    number: priceCharting?.number || amazonDiscovered.number,
+    series: priceCharting?.series || amazonDiscovered.series,
+    upc: priceCharting?.upc || amazonDiscovered.upc,
   };
   const funko = await findFunko(discovered, stages);
   if (funko?.upc && !discovered.upc) discovered.upc = funko.upc;
 
   const checkedAt = new Date().toISOString();
-  const suggestion = priceCharting || funko ? {
-    name: priceCharting?.name || funko?.name || item.name,
-    number: priceCharting?.number || item.number,
-    series: priceCharting?.series || item.series,
-    sku: funko?.sku || item.sku,
-    upc: priceCharting?.upc || funko?.upc || item.upc,
-    description: priceCharting?.description || funko?.description || "",
-    releaseDate: priceCharting?.releaseDate || "",
-    imageUrl: priceCharting?.imageUrl || funko?.imageUrl || "",
-    referencePrices: priceCharting?.referencePrices || null,
+  const suggestion = priceCharting || amazon || funko ? {
+    name: priceCharting?.name || amazon?.name || funko?.name || item.name,
+    number: priceCharting?.number || amazon?.number || item.number,
+    series: priceCharting?.series || amazon?.series || item.series,
+    sku: funko?.sku || amazon?.sku || item.sku,
+    upc: priceCharting?.upc || amazon?.upc || funko?.upc || item.upc,
+    description: priceCharting?.description || amazon?.description || funko?.description || "",
+    releaseDate: priceCharting?.releaseDate || amazon?.releaseDate || "",
+    imageUrl: priceCharting?.imageUrl || amazon?.imageUrl || funko?.imageUrl || "",
+    referencePrices: priceCharting?.referencePrices || amazon?.referencePrices || null,
     infoSources: [
+      ...(amazon?.infoSources || []),
       ...(priceCharting?.infoSources || []),
       ...(funko ? [{ name: "Funko", url: funko.sourceUrl, checkedAt }] : []),
     ],
-    confidence: priceCharting?.confidence ?? (funko ? 1 : 0),
+    confidence: priceCharting?.confidence ?? amazon?.confidence ?? (funko ? 1 : 0),
   } : null;
   const finalIdentity = suggestion ? { ...item, ...suggestion } : item;
   const links = searchLinks(finalIdentity);

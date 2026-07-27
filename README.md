@@ -88,6 +88,10 @@ that have an amount entered.
 - **Funko:** a SKU/Funko item ID, or a modern barcode beginning `889698`, enables
   an exact official product search. This can corroborate the title, item ID,
   image, and official page.
+- **Amazon Australia:** paste an exact Amazon product URL to import the listing
+  title, image, Funko model number, UPC, description, and current new price when
+  those fields are publicly exposed. The finder records the ASIN-backed source
+  URL but does not crawl Amazon search results.
 - **eBay and Trade Me:** the finder creates public, identifier-aware searches.
   Open them to compare sticker, variant, condition, postage, and recent sold or
   local asking prices. No account login or developer credentials are used.
@@ -102,7 +106,7 @@ and image links, but its data was last updated on 3 January 2021 and the project
 is now deprecated. It does not contain box numbers or prices. Suggested matches
 are visibly marked and can be replaced with a custom image URL.
 
-The item editor also accepts a supported Funko, PriceCharting, or retailer
+The item editor also accepts a supported Amazon AU, Funko, PriceCharting, or retailer
 product-page URL and uses its advertised preview image when the site permits
 metadata access. Always verify the figure, box number, sticker, and variant
 before applying a match.
@@ -113,7 +117,8 @@ suggestions. Turn it off in Settings if desired; placeholders remain available.
 
 See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and license
 details. Product names and trademarks belong to their owners. This personal app
-is not affiliated with Funko, Marvel, hobbyDB, PriceCharting, Trade Me, or eBay.
+is not affiliated with Amazon, Funko, Marvel, hobbyDB, PriceCharting, Trade Me,
+or eBay.
 
 ## Development
 

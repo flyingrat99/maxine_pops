@@ -177,7 +177,7 @@ export function Finder({ initialSeed, onSeedUsed }: FinderProps) {
             <label><span>SKU / Funko item ID</span><input value={lookup.sku} onChange={(event) => setLookup((current) => ({ ...current, sku: event.target.value }))} placeholder="FUN82769" /></label>
             <label><span>UPC / EAN</span><input value={lookup.upc} onChange={(event) => setLookup((current) => ({ ...current, upc: event.target.value.replace(/\D/g, "") }))} inputMode="numeric" placeholder="889698827690" /></label>
             <label><span>Category</span><select value={lookup.category} onChange={(event) => setLookup((current) => ({ ...current, category: event.target.value as Category }))}><option>Marvel</option><option>Others</option></select></label>
-            <label className="finder-url-field"><span>Image or product page URL</span><input type="url" value={lookup.customImageUrl} onChange={(event) => setLookup((current) => ({ ...current, customImageUrl: event.target.value }))} placeholder="Paste a PriceCharting, Funko, retailer, or image URL" /></label>
+            <label className="finder-url-field"><span>Image or product page URL</span><input type="url" value={lookup.customImageUrl} onChange={(event) => setLookup((current) => ({ ...current, customImageUrl: event.target.value }))} placeholder="Paste an Amazon, PriceCharting, Funko, retailer, or image URL" /></label>
           </div>
           {(lookup.description || lookup.releaseDate || lookup.customImageUrl) && (
             <div className="finder-found-preview">

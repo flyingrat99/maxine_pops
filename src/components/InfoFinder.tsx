@@ -33,7 +33,7 @@ export function InfoFinder({ item, onApply }: InfoFinderProps) {
   const [error, setError] = useState("");
   const [applied, setApplied] = useState(false);
   const fallbackLinks = useMemo(() => marketLinks(item), [item]);
-  const hasLookupInput = Boolean(item.name.trim() || item.sku.trim() || item.upc.trim() || /pricecharting\.com/i.test(item.customImageUrl));
+  const hasLookupInput = Boolean(item.name.trim() || item.sku.trim() || item.upc.trim() || /(?:pricecharting\.com|amazon\.com\.au)/i.test(item.customImageUrl));
 
   const findInfo = async () => {
     setLoading(true);
@@ -113,6 +113,7 @@ export function InfoFinder({ item, onApply }: InfoFinderProps) {
       <div className="external-market-links">
         <span>Open the searches directly:</span>
         <a href={links.priceCharting} target="_blank" rel="noreferrer">PriceCharting <ExternalLink size={13} /></a>
+        <a href={links.amazon} target="_blank" rel="noreferrer">Amazon AU <ExternalLink size={13} /></a>
         <a href={links.ebay} target="_blank" rel="noreferrer">eBay sold <ExternalLink size={13} /></a>
         <a href={links.tradeMe} target="_blank" rel="noreferrer">Trade Me <ExternalLink size={13} /></a>
       </div>

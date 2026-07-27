@@ -61,22 +61,25 @@ export function getImageUrl(item: PopItem, useProxy = true): string {
 
 type MarketQueryItem = Pick<PopItem, "name" | "number" | "series" | "sku" | "upc">;
 
-export function marketQuery(item: MarketQueryItem, source: "general" | "ebay" | "trademe" | "pricecharting" = "general"): string {
+export function marketQuery(item: MarketQueryItem, source: "general" | "amazon" | "ebay" | "trademe" | "pricecharting" = "general"): string {
   const sku = String(item.sku || "").trim();
   const upc = String(item.upc || "").replace(/\D/g, "");
   const base = ["Funko Pop", item.name, item.number ? `#${item.number}` : "", item.series && item.series !== "Unsorted" ? item.series : ""].filter(Boolean);
   if (source === "pricecharting" && upc) return upc;
   if (source === "ebay" && upc) return ["Funko", item.name, upc].filter(Boolean).join(" ");
+  if (source === "amazon") return [...base, sku || upc].filter(Boolean).join(" ");
   if (source === "trademe") return [...base, sku].filter(Boolean).join(" ");
   return [...base, sku, upc].filter(Boolean).join(" ");
 }
 
 export function marketLinks(item: MarketQueryItem) {
   const priceChartingQuery = encodeURIComponent(marketQuery(item, "pricecharting"));
+  const amazonQuery = encodeURIComponent(marketQuery(item, "amazon"));
   const ebayQuery = encodeURIComponent(marketQuery(item, "ebay"));
   const tradeMeQuery = encodeURIComponent(marketQuery(item, "trademe"));
   return {
     priceCharting: `https://www.pricecharting.com/search-products?type=prices&q=${priceChartingQuery}`,
+    amazon: `https://www.amazon.com.au/s?k=${amazonQuery}`,
     ebay: `https://www.ebay.com/sch/i.html?_nkw=${ebayQuery}&LH_Sold=1&LH_Complete=1`,
     tradeMe: `https://www.trademe.co.nz/a/marketplace/search?search_string=${tradeMeQuery}`,
   };

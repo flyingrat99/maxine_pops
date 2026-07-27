@@ -35,6 +35,13 @@ export function Settings() {
           <a className="button secondary" href="https://funko.com/search/" target="_blank" rel="noreferrer">Open Funko search <ExternalLink size={15} /></a>
         </section>
 
+        <section className="panel connection-card amazon-source-card">
+          <div className="connection-top"><div className="market-logo amazon-logo">amazon<span>smile</span></div><span className="status-pill public">Direct listings</span></div>
+          <h2>Retail details & new price</h2>
+          <p>Paste an exact Amazon Australia product URL into a Pop. The finder can import the listing title, image, ASIN-backed source link, Funko model number, UPC, description, and current new price when Amazon exposes them.</p>
+          <a className="button secondary" href="https://www.amazon.com.au/s?k=Funko+Pop" target="_blank" rel="noreferrer">Search Amazon AU <ExternalLink size={15} /></a>
+        </section>
+
         <section className="panel connection-card public-market-card">
           <div className="connection-top"><div className="market-logo"><SearchCheck /> Markets</div><span className="status-pill public">Manual check</span></div>
           <h2>eBay sold & Trade Me</h2>

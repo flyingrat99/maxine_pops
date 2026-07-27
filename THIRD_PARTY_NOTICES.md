@@ -13,5 +13,5 @@ presented as suggestions that Maxine can correct, not authoritative product
 identification or live market data.
 
 Product names and trademarks belong to their respective owners. This is an
-unofficial personal collection tracker and is not affiliated with Funko,
-Marvel, hobbyDB, PriceCharting, Trade Me, or eBay.
+unofficial personal collection tracker and is not affiliated with Amazon,
+Funko, Marvel, hobbyDB, PriceCharting, Trade Me, or eBay.
