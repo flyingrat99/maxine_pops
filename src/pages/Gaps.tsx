@@ -1,7 +1,7 @@
-import { AlertTriangle, Check, Heart, LoaderCircle, Plus, SearchCheck, Sparkles } from "lucide-react";
+import { AlertTriangle, Check, Heart, ImageIcon, LoaderCircle, Plus, SearchCheck, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader, SearchField } from "../components/Common";
-import { normalizeText } from "../lib";
+import { createLocalId, normalizeText } from "../lib";
 import { useTracker } from "../store";
 import type { CatalogEntry, PopItem } from "../types";
 
@@ -48,7 +48,7 @@ function detectNumberRuns(rawNumbers: number[]): NumberRun[] {
 
 function wishlistItem(name: string, number: string, series: string, catalog: CatalogEntry | null): PopItem {
   return {
-    id: `custom-${crypto.randomUUID()}`,
+    id: createLocalId(),
     name,
     number,
     series,
@@ -72,7 +72,20 @@ function wishlistItem(name: string, number: string, series: string, catalog: Cat
   };
 }
 
-export function Gaps() {
+function CatalogImage({ entry, imageUrl }: { entry: CatalogEntry; imageUrl: string }) {
+  const [failed, setFailed] = useState(false);
+  if (!imageUrl || failed) {
+    return <div className="catalog-image-fallback"><ImageIcon size={30} /><span>Image unavailable</span></div>;
+  }
+  return <img src={imageUrl} alt={entry.title} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
+}
+
+interface GapsProps {
+  onNotify: (message: string) => void;
+  onViewWishlist: () => void;
+}
+
+export function Gaps({ onNotify, onViewWishlist }: GapsProps) {
   const { state, addItem } = useTracker();
   const owned = useMemo(() => state.items.filter((item) => item.status === "owned"), [state.items]);
   const wishlist = useMemo(() => state.items.filter((item) => item.status === "wishlist"), [state.items]);
@@ -88,6 +101,7 @@ export function Gaps() {
   const [catalogError, setCatalogError] = useState("");
   const [catalogSearch, setCatalogSearch] = useState("");
   const [added, setAdded] = useState<Set<string>>(new Set());
+  const [lastCatalogAddition, setLastCatalogAddition] = useState("");
 
   useEffect(() => {
     if (!selectedSeries && seriesOptions.length) {
@@ -137,11 +151,14 @@ export function Gaps() {
     const key = `gap-${selectedSeries}-${number}`;
     addItem(wishlistItem(`Missing ${selectedSeries} Pop`, String(number), selectedSeries, null));
     setAdded((current) => new Set(current).add(key));
+    onNotify(`#${number} added to the wishlist. Wishlist now has ${wishlist.length + 1} items.`);
   };
 
   const addCatalog = (entry: CatalogEntry) => {
     addItem(wishlistItem(entry.title, "", entry.series.find((value) => !value.startsWith("Pop! ")) || entry.series.at(-1) || "Open catalog", entry));
     setAdded((current) => new Set(current).add(entry.handle + entry.title));
+    setLastCatalogAddition(entry.title);
+    onNotify(`${entry.title} added to the wishlist. Wishlist now has ${wishlist.length + 1} items.`);
   };
 
   return (
@@ -156,14 +173,24 @@ export function Gaps() {
             <>
               <div className="completion-score"><div><strong>{gapData.coverage}%</strong><span>number-run coverage</span></div><p>Owned {gapData.numbers.length} unique numbers in the detected #{gapData.min}–#{gapData.max} run.</p></div>
               <div className="gap-progress"><span style={{ width: `${gapData.coverage}%` }} /></div>
-              <div className="inline-alert neutral"><AlertTriangle size={17} /><p>Large series are split into nearby number runs, avoiding hundreds of false gaps between release eras. Box numbers are not always continuous, so treat these as leads to verify—not a canonical checklist.{isolatedNumberCount > 0 ? ` ${isolatedNumberCount} isolated number${isolatedNumberCount === 1 ? " was" : "s were"} left out of the detected runs.` : ""}</p></div>
+              <div className="inline-alert neutral"><AlertTriangle size={17} /><p>Large series are split into nearby number runs, avoiding hundreds of false gaps between release eras. Box numbers are not always continuous, so treat these as leads to verify—not a canonical checklist. Use “Find image” to identify a number before wishlisting it.{isolatedNumberCount > 0 ? ` ${isolatedNumberCount} isolated number${isolatedNumberCount === 1 ? " was" : "s were"} left out of the detected runs.` : ""}</p></div>
               {gapData.missing.length ? (
                 <div className="gap-number-grid">
                   {gapData.missing.map((number) => {
                     const key = `gap-${selectedSeries}-${number}`;
                     const wished = wishlist.some((item) => item.number === String(number) && (item.series === selectedSeries || item.series.includes("wishlist")));
                     const isAdded = added.has(key);
-                    return <button key={number} className={wished || isAdded ? "wished" : ""} onClick={() => !wished && !isAdded && addGap(number)}><strong>#{number}</strong><span>{wished || isAdded ? <><Heart size={12} fill="currentColor" /> listed</> : <><Plus size={12} /> wishlist</>}</span></button>;
+                    const imageSearchUrl = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(`Funko Pop ${selectedSeries} ${number}`)}`;
+                    return (
+                      <article key={number} className={`gap-number-card ${wished || isAdded ? "wished" : ""}`}>
+                        <a href={imageSearchUrl} target="_blank" rel="noreferrer" className="gap-image-lookup" title={`Find images for ${selectedSeries} #${number}`}>
+                          <ImageIcon size={19} />
+                          <strong>#{number}</strong>
+                          <span>Find image</span>
+                        </a>
+                        <button disabled={wished || isAdded} onClick={() => addGap(number)}>{wished || isAdded ? <><Heart size={12} fill="currentColor" /> Listed</> : <><Plus size={12} /> Wishlist</>}</button>
+                      </article>
+                    );
                   })}
                 </div>
               ) : <div className="all-clear"><Check /> No gaps inside this recorded number range.</div>}
@@ -174,6 +201,7 @@ export function Gaps() {
         <section className="panel catalog-explorer">
           <div className="panel-heading"><div><span className="eyebrow red">OPEN CATALOG</span><h2>Discover candidates</h2></div><Sparkles /></div>
           <p>Search 10,678 Pop! Vinyl records from the Kenny Chan dataset. It has useful titles and images, but no box numbers or current prices.</p>
+          {lastCatalogAddition && <div className="inline-alert success compact catalog-confirmation" role="status"><Check size={17} /><p><strong>{lastCatalogAddition}</strong> was added. Your wishlist now contains {wishlist.length.toLocaleString()} items.</p><button onClick={onViewWishlist}>View wishlist</button></div>}
           <SearchField value={catalogSearch} onChange={setCatalogSearch} placeholder="Try a character or catalog series…" />
           {catalogLoading && <div className="loading-state"><LoaderCircle className="spin" /> Loading catalog…</div>}
           {catalogError && <div className="inline-alert warning"><AlertTriangle /><p>{catalogError}</p></div>}
@@ -184,12 +212,12 @@ export function Gaps() {
               const key = entry.handle + entry.title;
               const alreadyWished = wishlist.some((item) => normalizeText(item.name) === normalizeText(entry.title));
               const isAdded = added.has(key);
-              const imageUrl = entry.imageUrl.includes("images.hobbydb.com") && state.settings.imageProxy ? `https://wsrv.nl/?url=${encodeURIComponent(entry.imageUrl)}&w=300&h=300&fit=contain&we` : entry.imageUrl;
+              const imageUrl = entry.imageUrl.includes("images.hobbydb.com") && state.settings.imageProxy ? `https://wsrv.nl/?url=${encodeURIComponent(entry.imageUrl)}&w=520&h=520&fit=contain&we` : entry.imageUrl;
               return (
                 <article key={key} className="catalog-card">
-                  <div className="catalog-image">{entry.imageUrl ? <img src={imageUrl} alt={entry.title} loading="lazy" referrerPolicy="no-referrer" /> : <span>POP</span>}</div>
+                  <div className="catalog-image"><CatalogImage entry={entry} imageUrl={imageUrl} /></div>
                   <div><h3>{entry.title}</h3><p>{entry.series.filter((value) => value !== "Pop! Vinyl").slice(0, 2).join(" · ") || "Pop! Vinyl"}</p></div>
-                  <button disabled={alreadyWished || isAdded} onClick={() => addCatalog(entry)}>{alreadyWished || isAdded ? <><Check size={14} /> On wishlist</> : <><Plus size={14} /> Add to wishlist</>}</button>
+                  <button disabled={alreadyWished || isAdded} onClick={() => addCatalog(entry)}>{isAdded ? <><Check size={14} /> Added to wishlist</> : alreadyWished ? <><Check size={14} /> On wishlist</> : <><Plus size={14} /> Add to wishlist</>}</button>
                 </article>
               );
             })}

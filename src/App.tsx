@@ -54,7 +54,7 @@ export default function App() {
   else if (page === "collection") content = <Library status="owned" onAdd={() => openNew("owned")} onEdit={openEdit} />;
   else if (page === "wishlist") content = <Library status="wishlist" onAdd={() => openNew("wishlist")} onEdit={openEdit} />;
   else if (page === "sale") content = <Library status="sale" onAdd={() => openNew("sale")} onEdit={openEdit} />;
-  else if (page === "gaps") content = <Gaps />;
+  else if (page === "gaps") content = <Gaps onNotify={notify} onViewWishlist={() => setPage("wishlist")} />;
   else if (page === "backup") content = <Backup />;
   else content = <Settings />;
 

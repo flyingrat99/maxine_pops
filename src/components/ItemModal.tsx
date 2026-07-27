@@ -1,13 +1,13 @@
 import { AlertTriangle, ExternalLink, Heart, Save, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { conditionOptions, marketLinks, parsePrice, statusLabels } from "../lib";
+import { conditionOptions, createLocalId, marketLinks, parsePrice, statusLabels } from "../lib";
 import type { Category, Condition, ItemStatus, PopItem } from "../types";
 import { MarketSearch } from "./MarketSearch";
 import { PopImage } from "./PopImage";
 
 function blankItem(status: ItemStatus): PopItem {
   return {
-    id: `custom-${crypto.randomUUID()}`,
+    id: createLocalId(),
     name: "",
     number: "",
     series: status === "wishlist" ? "Wishlist" : "Unsorted",

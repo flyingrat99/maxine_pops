@@ -8,6 +8,17 @@ export const statusLabels = {
 
 export const conditionOptions = ["Mint", "Near mint", "Good", "Box damaged", "Out of box"] as const;
 
+export function createLocalId(prefix = "custom"): string {
+  try {
+    if (typeof globalThis.crypto?.randomUUID === "function") {
+      return `${prefix}-${globalThis.crypto.randomUUID()}`;
+    }
+  } catch {
+    // LAN-hosted HTTP pages may expose crypto without allowing randomUUID.
+  }
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 export function normalizeText(value: string): string {
   return value
     .normalize("NFKD")
