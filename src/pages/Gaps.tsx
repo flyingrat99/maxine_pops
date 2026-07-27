@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Heart, ImageIcon, LoaderCircle, Plus, SearchCheck, Sparkles } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink, Heart, ImageIcon, LoaderCircle, Plus, SearchCheck, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader, SearchField } from "../components/Common";
 import { createLocalId, normalizeText } from "../lib";
@@ -12,6 +12,18 @@ interface NumberRun {
   max: number;
   missing: number[];
   coverage: number;
+}
+
+function extractFunkoItemNumber(value: string) {
+  const compact = value.trim().toUpperCase().replace(/[\s-]+/g, "");
+  const skuMatch = compact.match(/^(?:FUN|FK)(\d{4,6})$/);
+  if (skuMatch) return skuMatch[1];
+
+  const digits = compact.replace(/\D/g, "");
+  const upc = digits.length === 13 && digits.startsWith("0") ? digits.slice(1) : digits;
+  const barcodeMatch = upc.match(/^889698(\d{5})(\d)$/);
+  if (barcodeMatch) return barcodeMatch[1];
+  return /^\d{4,6}$/.test(digits) ? digits : "";
 }
 
 function detectNumberRuns(rawNumbers: number[]): NumberRun[] {
@@ -100,6 +112,7 @@ export function Gaps({ onNotify, onViewWishlist }: GapsProps) {
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState("");
   const [catalogSearch, setCatalogSearch] = useState("");
+  const [skuLookup, setSkuLookup] = useState("");
   const [added, setAdded] = useState<Set<string>>(new Set());
   const [lastCatalogAddition, setLastCatalogAddition] = useState("");
 
@@ -134,6 +147,7 @@ export function Gaps({ onNotify, onViewWishlist }: GapsProps) {
   const gapData = numberRuns.find((run) => run.key === selectedRunKey) ?? bestRun;
   const includedNumberCount = useMemo(() => new Set(numberRuns.flatMap((run) => run.numbers)).size, [numberRuns]);
   const isolatedNumberCount = seriesNumbers.length - includedNumberCount;
+  const resolvedItemNumber = useMemo(() => extractFunkoItemNumber(skuLookup), [skuLookup]);
 
   const catalogResults = useMemo(() => {
     const query = normalizeText(catalogSearch);
@@ -167,27 +181,37 @@ export function Gaps({ onNotify, onViewWishlist }: GapsProps) {
       <div className="gap-layout">
         <section className="panel number-gap-panel">
           <div className="panel-heading"><div><span className="eyebrow red">NUMBER RUN</span><h2>Missing box numbers</h2></div><SearchCheck /></div>
+          <div className="sku-resolver">
+            <div><strong>Have a retailer SKU or barcode?</strong><span>Resolve Popcultcha codes such as FUN82769 through Funko’s official item search.</span></div>
+            <div className="sku-resolver-controls">
+              <input value={skuLookup} onChange={(event) => setSkuLookup(event.target.value)} placeholder="FUN82769 or 889698827690" aria-label="Funko retailer SKU or barcode" />
+              {resolvedItemNumber ? <a href={`https://funko.com/search/?q=${encodeURIComponent(resolvedItemNumber)}`} target="_blank" rel="noreferrer"><SearchCheck size={14} /> Find item {resolvedItemNumber}</a> : <button type="button" disabled><SearchCheck size={14} /> Find on Funko</button>}
+            </div>
+            {skuLookup && !resolvedItemNumber && <p>Enter a FUN/FK item code, a Funko barcode beginning 889698, or a 4–6 digit item number.</p>}
+          </div>
           <label className="large-select"><span>Choose a series</span><select value={selectedSeries} onChange={(event) => { setSelectedSeries(event.target.value); setSelectedRunKey(""); }}>{seriesOptions.map(([value, count]) => <option key={value} value={value}>{value} ({count})</option>)}</select></label>
           {numberRuns.length > 1 && <label className="large-select run-select"><span>Choose a detected number run</span><select value={gapData?.key ?? ""} onChange={(event) => setSelectedRunKey(event.target.value)}>{numberRuns.map((run) => <option key={run.key} value={run.key}>#{run.min}–#{run.max} ({run.numbers.length} owned)</option>)}</select></label>}
           {gapData ? (
             <>
               <div className="completion-score"><div><strong>{gapData.coverage}%</strong><span>number-run coverage</span></div><p>Owned {gapData.numbers.length} unique numbers in the detected #{gapData.min}–#{gapData.max} run.</p></div>
               <div className="gap-progress"><span style={{ width: `${gapData.coverage}%` }} /></div>
-              <div className="inline-alert neutral"><AlertTriangle size={17} /><p>Large series are split into nearby number runs, avoiding hundreds of false gaps between release eras. Box numbers are not always continuous, so treat these as leads to verify—not a canonical checklist. Use the Popcultcha lookup to identify a number before wishlisting it.{isolatedNumberCount > 0 ? ` ${isolatedNumberCount} isolated number${isolatedNumberCount === 1 ? " was" : "s were"} left out of the detected runs.` : ""}</p></div>
+              <div className="inline-alert neutral"><AlertTriangle size={17} /><p>These are unverified numeric gaps, not confirmed missing products. Funko item and retailer SKU numbers are different from the number printed on the box. Check the exact box number against an official Funko product page first; use Popcultcha as a second retailer lookup.{isolatedNumberCount > 0 ? ` ${isolatedNumberCount} isolated number${isolatedNumberCount === 1 ? " was" : "s were"} left out of the detected runs.` : ""}</p></div>
               {gapData.missing.length ? (
                 <div className="gap-number-grid">
                   {gapData.missing.map((number) => {
                     const key = `gap-${selectedSeries}-${number}`;
                     const wished = wishlist.some((item) => item.number === String(number) && (item.series === selectedSeries || item.series.includes("wishlist")));
                     const isAdded = added.has(key);
+                    const officialSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(`site:funko.com "Box Number: ${number}"`)}`;
                     const popcultchaSearchUrl = `https://www.popcultcha.com.au/catalogsearch/result/?q=${encodeURIComponent(`Funko Pop ${selectedSeries} ${number}`)}`;
                     return (
                       <article key={number} className={`gap-number-card ${wished || isAdded ? "wished" : ""}`}>
-                        <a href={popcultchaSearchUrl} target="_blank" rel="noreferrer" className="gap-image-lookup" title={`Search Popcultcha for ${selectedSeries} #${number}`}>
-                          <ImageIcon size={19} />
+                        <a href={officialSearchUrl} target="_blank" rel="noreferrer" className="gap-image-lookup" title={`Search official Funko pages for ${selectedSeries} box #${number}`}>
+                          <SearchCheck size={19} />
                           <strong>#{number}</strong>
-                          <span>Popcultcha lookup</span>
+                          <span>Verify at Funko</span>
                         </a>
+                        <a href={popcultchaSearchUrl} target="_blank" rel="noreferrer" className="gap-retailer-link" title={`Search Popcultcha for ${selectedSeries} box #${number}`}><ExternalLink size={10} /> Popcultcha</a>
                         <button disabled={wished || isAdded} onClick={() => addGap(number)}>{wished || isAdded ? <><Heart size={12} fill="currentColor" /> Listed</> : <><Plus size={12} /> Wishlist</>}</button>
                       </article>
                     );
