@@ -17,7 +17,23 @@ does not require installing the development dependencies.
 2. Double-click `start.bat`.
 3. The tracker opens at `http://127.0.0.1:4173`.
 
-### macOS or Linux
+When `start.bat` is opened from an SMB/network drive, Windows may show an “Open
+File – Security Warning”. If this is your trusted share and this repository is
+the expected copy, choose **Run**. This mode starts Node on the Windows PC, and
+the command window must remain open while the tracker is in use.
+
+### Run centrally on Spock (recommended for the SMB share)
+
+From a shell on Spock:
+
+```bash
+./start.sh
+```
+
+The Linux launcher listens on the LAN. Leave that process running, then open
+`http://spock.lan:4173` from Windows or another device on the same network.
+
+### Local macOS or Linux
 
 With Node.js 22.12 or newer installed:
 
@@ -25,8 +41,9 @@ With Node.js 22.12 or newer installed:
 npm start
 ```
 
-The server listens only on the local computer. Set `NO_OPEN=1` to prevent it
-from opening a browser automatically, or set `PORT` to use a different port.
+`npm start` listens only on the local computer by default. Set `NO_OPEN=1` to
+prevent it from opening a browser automatically, set `PORT` to use a different
+port, or run `node server.mjs --host 0.0.0.0` to make it reachable on the LAN.
 
 ## What is included
 

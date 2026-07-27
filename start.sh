@@ -2,4 +2,4 @@
 set -eu
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$SCRIPT_DIR"
-exec node server.mjs
+exec node server.mjs --host 0.0.0.0 --no-open

@@ -6,5 +6,5 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-node server.mjs
+node server.mjs --host 127.0.0.1
 pause

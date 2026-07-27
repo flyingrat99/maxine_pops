@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { hostname } from "node:os";
 
 const appRoot = fileURLToPath(new URL(".", import.meta.url));
 const distRoot = join(appRoot, "dist");
@@ -10,6 +11,9 @@ const connectionFile = join(appRoot, "data", "local-connections.json");
 const portArgIndex = process.argv.indexOf("--port");
 const parsedPort = portArgIndex >= 0 ? Number(process.argv[portArgIndex + 1]) : Number(process.env.PORT);
 const port = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 4173;
+const hostArgIndex = process.argv.indexOf("--host");
+const requestedHost = hostArgIndex >= 0 ? process.argv[hostArgIndex + 1] : process.env.HOST;
+const bindHost = requestedHost && /^[a-zA-Z0-9.:[\]-]+$/.test(requestedHost) ? requestedHost : "127.0.0.1";
 let ebayTokenCache = null;
 
 const contentTypes = {
@@ -263,7 +267,7 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/connections/trademe/start") {
     const trademe = config.trademe;
     if (!trademe?.consumerKey || !trademe?.consumerSecret) throw new Error("Save Trade Me app credentials first.");
-    const callback = `http://127.0.0.1:${port}/api/connections/trademe/callback`;
+    const callback = `${url.origin}/api/connections/trademe/callback`;
     const endpoint = `${tradeMeBase(trademe.environment)}/Oauth/RequestToken?scope=MyTradeMeRead`;
     const tokenResponse = await fetch(endpoint, { method: "POST", headers: { Authorization: tradeMeAuth(trademe, { callback }) } });
     const tokenText = await tokenResponse.text();
@@ -376,9 +380,13 @@ function openBrowser(url) {
   child.unref();
 }
 
-server.listen(port, "127.0.0.1", () => {
-  const url = `http://127.0.0.1:${port}`;
-  console.log(`Maxine's Pop Tracker is running at ${url}`);
+server.listen(port, bindHost, () => {
+  const localUrl = `http://127.0.0.1:${port}`;
+  const networkName = hostname().includes(".") ? hostname() : `${hostname()}.lan`;
+  const displayUrl = bindHost === "0.0.0.0" || bindHost === "::" ? `http://${networkName}:${port}` : `http://${bindHost}:${port}`;
+  console.log("Maxine's Pop Tracker is running at:");
+  console.log(`  ${displayUrl}`);
+  if (displayUrl !== localUrl) console.log(`  ${localUrl} (from this computer)`);
   console.log("Press Ctrl+C to stop it.");
-  openBrowser(url);
+  openBrowser(localUrl);
 });
