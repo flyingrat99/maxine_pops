@@ -5,6 +5,47 @@ import { normalizeText } from "../lib";
 import { useTracker } from "../store";
 import type { CatalogEntry, PopItem } from "../types";
 
+interface NumberRun {
+  key: string;
+  numbers: number[];
+  min: number;
+  max: number;
+  missing: number[];
+  coverage: number;
+}
+
+function detectNumberRuns(rawNumbers: number[]): NumberRun[] {
+  const numbers = [...new Set(rawNumbers)].sort((a, b) => a - b);
+  const clusters: number[][] = [];
+  let cluster: number[] = [];
+
+  numbers.forEach((number) => {
+    const previous = cluster.at(-1);
+    const startsNewRun = previous !== undefined && (number - previous > 40 || number - cluster[0] > 200);
+    if (startsNewRun) {
+      clusters.push(cluster);
+      cluster = [];
+    }
+    cluster.push(number);
+  });
+  if (cluster.length) clusters.push(cluster);
+
+  return clusters.filter((values) => values.length >= 2).map((values) => {
+    const min = values[0];
+    const max = values[values.length - 1];
+    const ownedSet = new Set(values);
+    const missing = Array.from({ length: max - min + 1 }, (_, index) => min + index).filter((number) => !ownedSet.has(number));
+    return {
+      key: `${min}-${max}`,
+      numbers: values,
+      min,
+      max,
+      missing,
+      coverage: Math.round((values.length / (max - min + 1)) * 100),
+    };
+  });
+}
+
 function wishlistItem(name: string, number: string, series: string, catalog: CatalogEntry | null): PopItem {
   return {
     id: `custom-${crypto.randomUUID()}`,
@@ -41,6 +82,7 @@ export function Gaps() {
     return [...counts].filter(([, count]) => count >= 3).sort((a, b) => b[1] - a[1]);
   }, [owned]);
   const [selectedSeries, setSelectedSeries] = useState("");
+  const [selectedRunKey, setSelectedRunKey] = useState("");
   const [catalog, setCatalog] = useState<CatalogEntry[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState("");
@@ -68,17 +110,16 @@ export function Gaps() {
       .finally(() => setCatalogLoading(false));
   }, []);
 
-  const gapData = useMemo(() => {
+  const seriesNumbers = useMemo(() => {
     const entries = owned.filter((item) => item.series === selectedSeries && /^\d+$/.test(item.number));
-    const numbers = [...new Set(entries.map((item) => Number(item.number)))].sort((a, b) => a - b);
-    if (numbers.length < 2) return { entries, numbers, missing: [] as number[], min: 0, max: 0, coverage: 0, tooWide: false };
-    const min = numbers[0];
-    const max = numbers[numbers.length - 1];
-    const tooWide = max - min > 500;
-    const ownedSet = new Set(numbers);
-    const missing = tooWide ? [] : Array.from({ length: max - min + 1 }, (_, index) => min + index).filter((number) => !ownedSet.has(number));
-    return { entries, numbers, missing, min, max, coverage: Math.round((numbers.length / (max - min + 1)) * 100), tooWide };
+    return [...new Set(entries.map((item) => Number(item.number)))].sort((a, b) => a - b);
   }, [owned, selectedSeries]);
+
+  const numberRuns = useMemo(() => detectNumberRuns(seriesNumbers), [seriesNumbers]);
+  const bestRun = useMemo(() => [...numberRuns].sort((a, b) => b.numbers.length - a.numbers.length || b.coverage - a.coverage)[0], [numberRuns]);
+  const gapData = numberRuns.find((run) => run.key === selectedRunKey) ?? bestRun;
+  const includedNumberCount = useMemo(() => new Set(numberRuns.flatMap((run) => run.numbers)).size, [numberRuns]);
+  const isolatedNumberCount = seriesNumbers.length - includedNumberCount;
 
   const catalogResults = useMemo(() => {
     const query = normalizeText(catalogSearch);
@@ -109,17 +150,16 @@ export function Gaps() {
       <div className="gap-layout">
         <section className="panel number-gap-panel">
           <div className="panel-heading"><div><span className="eyebrow red">NUMBER RUN</span><h2>Missing box numbers</h2></div><SearchCheck /></div>
-          <label className="large-select"><span>Choose a series</span><select value={selectedSeries} onChange={(event) => setSelectedSeries(event.target.value)}>{seriesOptions.map(([value, count]) => <option key={value} value={value}>{value} ({count})</option>)}</select></label>
-          {gapData.entries.length > 0 && (
+          <label className="large-select"><span>Choose a series</span><select value={selectedSeries} onChange={(event) => { setSelectedSeries(event.target.value); setSelectedRunKey(""); }}>{seriesOptions.map(([value, count]) => <option key={value} value={value}>{value} ({count})</option>)}</select></label>
+          {numberRuns.length > 1 && <label className="large-select run-select"><span>Choose a detected number run</span><select value={gapData?.key ?? ""} onChange={(event) => setSelectedRunKey(event.target.value)}>{numberRuns.map((run) => <option key={run.key} value={run.key}>#{run.min}–#{run.max} ({run.numbers.length} owned)</option>)}</select></label>}
+          {gapData ? (
             <>
-              <div className="completion-score"><div><strong>{gapData.coverage}%</strong><span>number-run coverage</span></div><p>Owned {gapData.numbers.length} unique numbers between #{gapData.min} and #{gapData.max}.</p></div>
+              <div className="completion-score"><div><strong>{gapData.coverage}%</strong><span>number-run coverage</span></div><p>Owned {gapData.numbers.length} unique numbers in the detected #{gapData.min}–#{gapData.max} run.</p></div>
               <div className="gap-progress"><span style={{ width: `${gapData.coverage}%` }} /></div>
-              <div className="inline-alert neutral"><AlertTriangle size={17} /><p>Box numbers are not always continuous, and exclusives reuse numbers. Treat these as leads to verify—not a canonical checklist.</p></div>
-              {gapData.tooWide ? (
-                <div className="empty-mini">This number range is too wide for a useful automatic gap list.</div>
-              ) : gapData.missing.length ? (
+              <div className="inline-alert neutral"><AlertTriangle size={17} /><p>Large series are split into nearby number runs, avoiding hundreds of false gaps between release eras. Box numbers are not always continuous, so treat these as leads to verify—not a canonical checklist.{isolatedNumberCount > 0 ? ` ${isolatedNumberCount} isolated number${isolatedNumberCount === 1 ? " was" : "s were"} left out of the detected runs.` : ""}</p></div>
+              {gapData.missing.length ? (
                 <div className="gap-number-grid">
-                  {gapData.missing.slice(0, 200).map((number) => {
+                  {gapData.missing.map((number) => {
                     const key = `gap-${selectedSeries}-${number}`;
                     const wished = wishlist.some((item) => item.number === String(number) && (item.series === selectedSeries || item.series.includes("wishlist")));
                     const isAdded = added.has(key);
@@ -128,7 +168,7 @@ export function Gaps() {
                 </div>
               ) : <div className="all-clear"><Check /> No gaps inside this recorded number range.</div>}
             </>
-          )}
+          ) : seriesNumbers.length > 0 ? <div className="empty-mini">These box numbers are too far apart to infer a reliable local run. Try the open catalog search instead.</div> : null}
         </section>
 
         <section className="panel catalog-explorer">
