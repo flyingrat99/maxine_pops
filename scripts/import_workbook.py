@@ -257,6 +257,8 @@ def main() -> None:
                     "comments": row.get("G", "") if category == "Marvel" else row.get("F", ""),
                     "funkoApp": row.get("D", ""),
                     "hobbyDb": row.get("E", ""),
+                    "sku": "",
+                    "upc": "",
                     "favorite": False,
                     "location": "",
                     "purchasePrice": None,
@@ -287,6 +289,8 @@ def main() -> None:
                 "comments": row.get("C", ""),
                 "funkoApp": "",
                 "hobbyDb": "",
+                "sku": "",
+                "upc": "",
                 "favorite": False,
                 "location": "",
                 "purchasePrice": None,
@@ -320,6 +324,8 @@ def main() -> None:
                 "comments": row.get("D", ""),
                 "funkoApp": "",
                 "hobbyDb": "",
+                "sku": "",
+                "upc": "",
                 "favorite": False,
                 "location": "",
                 "purchasePrice": None,
@@ -334,7 +340,7 @@ def main() -> None:
         )
 
     seed = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "meta": {
             "title": "Maxine's Pop Tracker",
             "workbook": args.workbook.name,

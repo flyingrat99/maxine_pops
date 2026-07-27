@@ -29,6 +29,18 @@ export function normalizeText(value: string): string {
     .trim();
 }
 
+export function extractFunkoItemNumber(value: string): string {
+  const compact = value.trim().toUpperCase().replace(/[\s-]+/g, "");
+  const skuMatch = compact.match(/^(?:FUN|FK)(\d{4,6})$/);
+  if (skuMatch) return skuMatch[1];
+
+  const digits = compact.replace(/\D/g, "");
+  const upc = digits.length === 13 && digits.startsWith("0") ? digits.slice(1) : digits;
+  const barcodeMatch = upc.match(/^889698(\d{5})(\d)$/);
+  if (barcodeMatch) return barcodeMatch[1];
+  return /^\d{4,6}$/.test(digits) ? digits : "";
+}
+
 export function formatMoney(value: number | null | undefined, currency = "NZD"): string {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
   return new Intl.NumberFormat("en-NZ", {
@@ -47,19 +59,26 @@ export function getImageUrl(item: PopItem, useProxy = true): string {
   return `https://wsrv.nl/?url=${encodeURIComponent(source)}&w=520&h=520&fit=contain&we`;
 }
 
-export function marketQuery(item: Pick<PopItem, "name" | "number" | "series">): string {
-  return ["Funko Pop", item.name, item.number ? `#${item.number}` : "", item.series && item.series !== "Unsorted" ? item.series : ""]
-    .filter(Boolean)
-    .join(" ");
+type MarketQueryItem = Pick<PopItem, "name" | "number" | "series" | "sku" | "upc">;
+
+export function marketQuery(item: MarketQueryItem, source: "general" | "ebay" | "trademe" | "pricecharting" = "general"): string {
+  const sku = String(item.sku || "").trim();
+  const upc = String(item.upc || "").replace(/\D/g, "");
+  const base = ["Funko Pop", item.name, item.number ? `#${item.number}` : "", item.series && item.series !== "Unsorted" ? item.series : ""].filter(Boolean);
+  if (source === "pricecharting" && upc) return upc;
+  if (source === "ebay" && upc) return ["Funko", item.name, upc].filter(Boolean).join(" ");
+  if (source === "trademe") return [...base, sku].filter(Boolean).join(" ");
+  return [...base, sku, upc].filter(Boolean).join(" ");
 }
 
-export function marketLinks(item: Pick<PopItem, "name" | "number" | "series">) {
-  const query = marketQuery(item);
-  const encoded = encodeURIComponent(query);
+export function marketLinks(item: MarketQueryItem) {
+  const priceChartingQuery = encodeURIComponent(marketQuery(item, "pricecharting"));
+  const ebayQuery = encodeURIComponent(marketQuery(item, "ebay"));
+  const tradeMeQuery = encodeURIComponent(marketQuery(item, "trademe"));
   return {
-    priceCharting: `https://www.pricecharting.com/search-products?type=prices&q=${encoded}`,
-    ebay: `https://www.ebay.com/sch/i.html?_nkw=${encoded}&LH_Sold=1&LH_Complete=1`,
-    tradeMe: `https://www.trademe.co.nz/a/marketplace/search?search_string=${encoded}`,
+    priceCharting: `https://www.pricecharting.com/search-products?type=prices&q=${priceChartingQuery}`,
+    ebay: `https://www.ebay.com/sch/i.html?_nkw=${ebayQuery}&LH_Sold=1&LH_Complete=1`,
+    tradeMe: `https://www.trademe.co.nz/a/marketplace/search?search_string=${tradeMeQuery}`,
   };
 }
 
@@ -79,12 +98,12 @@ export function csvCell(value: unknown): string {
 
 export function makeCsv(items: PopItem[], currency: string): string {
   const headers = [
-    "Status", "Category", "Name", "Number", "Series", "Quantity", "Condition", "Location",
+    "Status", "Category", "Name", "Number", "Series", "SKU / item ID", "UPC / EAN", "Quantity", "Condition", "Location",
     `Purchase price (${currency})`, `Estimated value (${currency})`, `Asking price (${currency})`,
     "Valuation source", "Valued at", "Favourite", "Comments", "Source sheet",
   ];
   const rows = items.map((item) => [
-    item.status, item.category, item.name, item.number, item.series, item.quantity, item.condition,
+    item.status, item.category, item.name, item.number, item.series, item.sku, item.upc, item.quantity, item.condition,
     item.location, item.purchasePrice, item.estimatedValue, item.askingPrice, item.valuationSource,
     item.valuedAt, item.favorite ? "yes" : "no", item.comments, item.sourceRef,
   ]);

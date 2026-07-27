@@ -55,6 +55,8 @@ port, or run `node server.mjs --host 0.0.0.0` to make it reachable on the LAN.
 - Search, category/series filters, favourites, condition, shelf location, notes,
   quantity, and custom image editing.
 - Per-Pop cost, estimated value, asking price, valuation source, and date.
+- Per-Pop SKU/Funko item ID and UPC/EAN barcode fields, included in search,
+  marketplace research links, JSON backups, and CSV exports.
 - Collection-level recorded value, cost, paper gain/loss, and valuation coverage.
 - Trade Me, eBay sold, and PriceCharting research links on every record.
 - Optional connected active-listing searches for eBay and Trade Me.

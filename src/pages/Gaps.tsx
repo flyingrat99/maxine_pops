@@ -1,7 +1,7 @@
 import { AlertTriangle, Check, ExternalLink, Heart, ImageIcon, LoaderCircle, Plus, SearchCheck, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader, SearchField } from "../components/Common";
-import { createLocalId, normalizeText } from "../lib";
+import { createLocalId, extractFunkoItemNumber, normalizeText } from "../lib";
 import { useTracker } from "../store";
 import type { CatalogEntry, PopItem } from "../types";
 
@@ -12,18 +12,6 @@ interface NumberRun {
   max: number;
   missing: number[];
   coverage: number;
-}
-
-function extractFunkoItemNumber(value: string) {
-  const compact = value.trim().toUpperCase().replace(/[\s-]+/g, "");
-  const skuMatch = compact.match(/^(?:FUN|FK)(\d{4,6})$/);
-  if (skuMatch) return skuMatch[1];
-
-  const digits = compact.replace(/\D/g, "");
-  const upc = digits.length === 13 && digits.startsWith("0") ? digits.slice(1) : digits;
-  const barcodeMatch = upc.match(/^889698(\d{5})(\d)$/);
-  if (barcodeMatch) return barcodeMatch[1];
-  return /^\d{4,6}$/.test(digits) ? digits : "";
 }
 
 function detectNumberRuns(rawNumbers: number[]): NumberRun[] {
@@ -71,6 +59,8 @@ function wishlistItem(name: string, number: string, series: string, catalog: Cat
     comments: catalog ? "Added from the open catalog explorer; verify the exact box number and variant." : "Number-gap placeholder; identify the exact Pop and variant.",
     funkoApp: "",
     hobbyDb: "",
+    sku: "",
+    upc: "",
     favorite: false,
     location: "",
     purchasePrice: null,

@@ -4,7 +4,7 @@ import { formatMoney, marketLinks, marketQuery, median } from "../lib";
 import type { MarketSearchResponse, PopItem } from "../types";
 
 interface MarketSearchProps {
-  item: Pick<PopItem, "name" | "number" | "series">;
+  item: Pick<PopItem, "name" | "number" | "series" | "sku" | "upc">;
   appCurrency: string;
   onUseEstimate: (value: number, source: string) => void;
   onUseImage: (imageUrl: string) => void;
@@ -25,7 +25,7 @@ export function MarketSearch({ item, appCurrency, onUseEstimate, onUseImage, onO
     setError("");
     setResult(null);
     try {
-      const response = await fetch(`/api/markets/search?source=${source}&q=${encodeURIComponent(marketQuery(item))}`);
+      const response = await fetch(`/api/markets/search?source=${source}&q=${encodeURIComponent(marketQuery(item, source))}`);
       const payload = await response.json() as MarketSearchResponse & { error?: string };
       if (!response.ok) throw new Error(payload.error || `Market search failed (${response.status}).`);
       setResult(payload);

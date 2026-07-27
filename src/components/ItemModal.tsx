@@ -1,6 +1,6 @@
 import { AlertTriangle, ExternalLink, Heart, Save, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { conditionOptions, createLocalId, marketLinks, parsePrice, statusLabels } from "../lib";
+import { conditionOptions, createLocalId, extractFunkoItemNumber, marketLinks, parsePrice, statusLabels } from "../lib";
 import type { Category, Condition, ItemStatus, PopItem } from "../types";
 import { MarketSearch } from "./MarketSearch";
 import { PopImage } from "./PopImage";
@@ -18,6 +18,8 @@ function blankItem(status: ItemStatus): PopItem {
     comments: "",
     funkoApp: "",
     hobbyDb: "",
+    sku: "",
+    upc: "",
     favorite: false,
     location: "",
     purchasePrice: null,
@@ -44,9 +46,10 @@ interface ItemModalProps {
 
 export function ItemModal({ item, initialStatus, currency, useProxy, onClose, onSave, onDelete, onOpenSettings }: ItemModalProps) {
   const isNew = item === null;
-  const [draft, setDraft] = useState<PopItem>(() => item ? structuredClone(item) : blankItem(initialStatus));
+  const [draft, setDraft] = useState<PopItem>(() => item ? { ...structuredClone(item), sku: item.sku ?? "", upc: item.upc ?? "" } : blankItem(initialStatus));
   const [deleteArmed, setDeleteArmed] = useState(false);
   const links = useMemo(() => marketLinks(draft), [draft]);
+  const funkoItemNumber = useMemo(() => extractFunkoItemNumber(draft.sku) || extractFunkoItemNumber(draft.upc), [draft.sku, draft.upc]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => event.key === "Escape" && onClose();
@@ -70,6 +73,8 @@ export function ItemModal({ item, initialStatus, currency, useProxy, onClose, on
       condition: data.get("condition") as Condition,
       location: String(data.get("location") || "").trim(),
       comments: String(data.get("comments") || "").trim(),
+      sku: String(data.get("sku") || "").trim().toUpperCase(),
+      upc: String(data.get("upc") || "").replace(/\D/g, ""),
       customImageUrl: String(data.get("customImageUrl") || "").trim(),
       purchasePrice: parsePrice(data.get("purchasePrice")),
       estimatedValue: nextValue,
@@ -109,6 +114,11 @@ export function ItemModal({ item, initialStatus, currency, useProxy, onClose, on
                 <label><span>Box number</span><input name="number" value={draft.number} onChange={(event) => setDraft((current) => ({ ...current, number: event.target.value }))} /></label>
               </div>
               <label><span>Series / collection</span><input name="series" value={draft.series} onChange={(event) => setDraft((current) => ({ ...current, series: event.target.value }))} /></label>
+              <div className="field-grid two identifier-fields">
+                <label><span>SKU / Funko item ID</span><input name="sku" value={draft.sku} onChange={(event) => setDraft((current) => ({ ...current, sku: event.target.value }))} placeholder="e.g. FUN82769 or 82769" autoComplete="off" /></label>
+                <label><span>UPC / EAN barcode</span><input name="upc" value={draft.upc} onChange={(event) => setDraft((current) => ({ ...current, upc: event.target.value.replace(/[^\d\s-]/g, "") }))} placeholder="e.g. 889698827690" inputMode="numeric" autoComplete="off" /></label>
+              </div>
+              {funkoItemNumber && <div className="identifier-note"><span>Funko item {funkoItemNumber} detected—identifier searches are now prioritised.</span><a href={`https://funko.com/search/?q=${encodeURIComponent(funkoItemNumber)}`} target="_blank" rel="noreferrer">Open official Funko result <ExternalLink size={12} /></a></div>}
               <div className="field-grid three">
                 <label><span>Category</span><select name="category" defaultValue={draft.category}><option>Marvel</option><option>Others</option></select></label>
                 <label><span>List</span><select name="status" defaultValue={draft.status}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>

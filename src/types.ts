@@ -21,6 +21,8 @@ export interface PopItem {
   comments: string;
   funkoApp: string;
   hobbyDb: string;
+  sku: string;
+  upc: string;
   favorite: boolean;
   location: string;
   purchasePrice: number | null;

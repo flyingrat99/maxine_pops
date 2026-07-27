@@ -5,10 +5,18 @@ import type { PopItem, SeedData, TrackerState } from "./types";
 const STORAGE_KEY = "maxines-pop-tracker:v1";
 const seed = seedJson as SeedData;
 
+function normalizeItem(item: PopItem): PopItem {
+  return {
+    ...item,
+    sku: String(item.sku ?? ""),
+    upc: String(item.upc ?? "").replace(/\D/g, ""),
+  };
+}
+
 function freshState(): TrackerState {
   return {
-    schemaVersion: 1,
-    items: structuredClone(seed.items),
+    schemaVersion: 2,
+    items: structuredClone(seed.items).map(normalizeItem),
     settings: { currency: "NZD", imageProxy: true },
     lastSavedAt: new Date().toISOString(),
   };
@@ -21,8 +29,8 @@ function loadState(): TrackerState {
     const parsed = JSON.parse(saved) as Partial<TrackerState>;
     if (!Array.isArray(parsed.items)) return freshState();
     return {
-      schemaVersion: 1,
-      items: parsed.items,
+      schemaVersion: 2,
+      items: parsed.items.map(normalizeItem),
       settings: {
         currency: parsed.settings?.currency ?? "NZD",
         imageProxy: parsed.settings?.imageProxy ?? true,
@@ -77,8 +85,8 @@ export function TrackerProvider({ children }: { children: ReactNode }) {
   const importState = useCallback((imported: TrackerState) => {
     if (!Array.isArray(imported.items)) throw new Error("This backup does not contain an items list.");
     setState({
-      schemaVersion: 1,
-      items: imported.items,
+      schemaVersion: 2,
+      items: imported.items.map(normalizeItem),
       settings: imported.settings ?? { currency: "NZD", imageProxy: true },
       lastSavedAt: new Date().toISOString(),
     });
